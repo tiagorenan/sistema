@@ -6,8 +6,9 @@ Este guia explica os passos necessários para configurar o ambiente de desenvolv
 
 Certifique-se de ter os seguintes softwares instalados:
 
-  * Python 3.x
-  * Git
+Python 3.x
+
+Git
 
 2. CLONAGEM DO REPOSITÓRIO
 
@@ -32,20 +33,21 @@ python -m venv venv
 
 Você deve ativar o ambiente virtual antes de instalar pacotes. Escolha o comando apropriado para o seu sistema:
 
+Sistema Operacional
+
+Comando de Ativação
+
 Windows (PowerShell)
 
 .\venv\Scripts\Activate.ps1
-
 
 Windows (Prompt de Comando/CMD)
 
 venv\Scripts\activate.bat
 
-
 macOS / Linux (Bash/Zsh)
 
 source venv/bin/activate
-
 
 Após a ativação, você verá o prefixo (venv) no terminal.
 
@@ -77,11 +79,11 @@ Para sair do ambiente virtual:
 deactivate
 
 
-🚀 Guia de Contribuição (Fluxo de Pull Request)
+🚀 GUIA DE CONTRIBUIÇÃO (FLUXO DE PULL REQUEST)
 
 A branch principal (main) está protegida e exige revisão. Siga estes passos para que suas alterações sejam aceitas no projeto:
 
-1. Preparação Local
+1. PREPARAÇÃO LOCAL
 
 1.1. Atualize a Branch Principal:
 
@@ -102,7 +104,7 @@ Crie uma branch específica para a sua tarefa (ex: feature/login, fix/erro-calcu
 git checkout -b nome-da-sua-branch
 
 
-2. Commit Local
+2. COMMIT LOCAL
 
 2.1. Adicione os Arquivos:
 
@@ -118,7 +120,7 @@ Crie um commit com uma mensagem clara:
 git commit -m "feat: Adiciona formulario de login"
 
 
-3. Envio para o GitHub (Push)
+3. ENVIO PARA O GITHUB (PUSH)
 
 3.1. Envie a Branch:
 
@@ -127,7 +129,7 @@ Suba sua nova branch para o GitHub:
 git push -u origin nome-da-sua-branch
 
 
-4. Criação e Revisão da Pull Request (PR)
+4. CRIAÇÃO E REVISÃO DA PULL REQUEST (PR)
 
 4.1. Crie a PR:
 
@@ -147,7 +149,7 @@ Se for solicitada alguma alteração, faça os novos commits na sua branch local
 
 Após a aprovação, o código será mesclado na branch main.
 
-5. Limpeza (Opcional)
+5. LIMPEZA (OPCIONAL)
 
 5.1. Volte para a Main:
 

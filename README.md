@@ -107,3 +107,61 @@ Para sair do ambiente virtual:
 ```
 deactivate
 ```
+
+
+
+🚀 Guia de Contribuição (Fluxo de Pull Request)
+A branch principal (main) está protegida e exige revisão. Siga estes passos para que suas alterações sejam aceitas no projeto:
+
+1. Preparação Local
+1.1. Atualize a Branch Principal:
+
+Volte para a main: git checkout main
+
+Baixe as últimas alterações do GitHub: git pull origin main
+
+1.2. Crie sua Branch de Trabalho:
+
+Crie uma branch específica para a sua tarefa (ex: feature/login, fix/erro-calculo): git checkout -b nome-da-sua-branch
+
+2. Commit Local
+2.1. Adicione os Arquivos:
+
+Prepare os arquivos modificados para o commit: git add .
+
+2.2. Confirme as Alterações (Commit):
+
+Crie um commit com uma mensagem clara: git commit -m "feat: Adiciona formulario de login"
+
+3. Envio para o GitHub (Push)
+3.1. Envie a Branch:
+
+Suba sua nova branch para o GitHub: git push -u origin nome-da-sua-branch
+
+4. Criação e Revisão da Pull Request (PR)
+4.1. Crie a PR:
+
+Acesse o repositório no GitHub.
+
+Use o botão "Compare & pull request" que aparecerá.
+
+Preencha o título e a descrição da PR.
+
+4.2. Aguarde a Revisão:
+
+O responsável pelo projeto (o Proprietário) ou outro colaborador designado irá revisar o seu código.
+
+Se for solicitada alguma alteração, faça os novos commits na sua branch local e envie novamente (git push). A Pull Request será automaticamente atualizada.
+
+4.3. Mesclagem (Merge):
+
+Após a aprovação, o código será mesclado na branch main.
+
+5. Limpeza (Opcional)
+5.1. Volte para a Main:
+
+Troque de volta para a branch principal: git checkout main
+
+5.2. Exclua a Branch Local:
+
+Deleta a branch que acabou de ser mesclada: git branch -d nome-da-sua-branch

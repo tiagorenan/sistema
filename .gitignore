@@ -1,0 +1,11 @@
+# Ignorar a pasta do ambiente virtual
+venv/
+.venv/
+# Ignorar arquivos de cache e temporários
+__pycache__/
+*.pyc
+# Arquivos de IDE (VS Code)
+.vscode/
+# Arquivos de log e banco de dados local
+*.log
+db.sqlite3

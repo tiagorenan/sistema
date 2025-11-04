@@ -1,0 +1,368 @@
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy, QSpacerItem,
+    QGridLayout, QLineEdit, QDateEdit
+)
+from PySide6.QtGui import QFont, QCursor
+from PySide6.QtCore import Qt, Signal, QDate, QRect
+import sys 
+
+# Adicionamos a importação da nova janela (necessária para a função open_articles_for_history)
+from Interface.historico_artigos_window import HistoricoArtigosWindow 
+
+# --- Definições de Cores ---
+AZUL_NEXUS = "#3b5998"
+CINZA_FUNDO = "#f7f7f7"
+BRANCO_PADRAO = "white"
+
+# --- Dados Simulados de Artigos (Simplificado para o Histórico) ---
+SIMULATED_ARTICLES_FOR_HISTORY = [
+    {"id": 1, "titulo": "Artigo A - Polifarmácia (2023)", "autores": "Silva et al.", "doi": "123", "publicacao": "PubMed", "link": "#", "resumo": "Resumo Polifarmácia 1"},
+    {"id": 2, "titulo": "Artigo B - Polifarmácia (2024)", "autores": "Santos et al.", "doi": "456", "publicacao": "Scielo", "link": "#", "resumo": "Resumo Polifarmácia 2"},
+    {"id": 3, "titulo": "Artigo C - Sepse (2020)", "autores": "Costa et al.", "doi": "789", "publicacao": "Lilacs", "link": "#", "resumo": "Resumo Sepse 1"},
+]
+
+# --- Dados Simulados de Histórico de Consultas (Com QDate para o filtro) ---
+SIMULATED_HISTORY_ENTRIES = [
+    {
+        "id": 1,
+        "termo": "Polifarmácia HC-UFPE",
+        "data_pesquisa": QDate(2025, 10, 1),
+        "plataformas": "PubMed, Scielo",
+        "artigos_encontrados": 25, 
+        "periodo": "01/01/2023 - 31/12/2024",
+        "resumo_resultado": "Busca focada em afiliações do HC-UFPE e termos de polifarmácia. Encontrados 25 artigos validados, com predominância em PubMed.",
+        "articles": [SIMULATED_ARTICLES_FOR_HISTORY[0], SIMULATED_ARTICLES_FOR_HISTORY[1]]
+    },
+    {
+        "id": 2,
+        "termo": "\"Sepse Neonatal\" AND NE",
+        "data_pesquisa": QDate(2025, 9, 15),
+        "plataformas": "Lilacs, Scielo",
+        "artigos_encontrados": 12,
+        "periodo": "01/01/2020 - 2025-09-15",
+        "resumo_resultado": "Busca sobre sepse neonatal com foco na região Nordeste. Encontrados 12 artigos de alta relevância.",
+        "articles": [SIMULATED_ARTICLES_FOR_HISTORY[2]]
+    },
+    {
+        "id": 3,
+        "termo": "Telemedicina AND 'Reinternação'",
+        "data_pesquisa": QDate(2024, 11, 3),
+        "plataformas": "Capes Periódicos",
+        "artigos_encontrados": 5,
+        "periodo": "01/01/2024 - 2025-08-20",
+        "resumo_resultado": "Busca recente sobre o impacto de programas de telemedicina em reinternações. Pequeno volume, mas alta relevância.",
+        "articles": []
+    }
+]
+
+# --- Widget Customizado para o Item de Histórico Expansível ---
+
+class HistoryListItem(QFrame):
+    """Representa um registro de consulta bem-sucedida que se expande."""
+    
+    item_clicked = Signal(int)
+
+    # ⚠️ CORREÇÃO: Recebe a instância da HistoryWindow diretamente para a delegação
+    def __init__(self, entry_data, history_window_instance, parent=None): 
+        super().__init__(parent)
+        self.entry_data = entry_data
+        self.history_window = history_window_instance # ARMAZENA A REFERÊNCIA
+        self.is_expanded = False
+        self.entry_id = entry_data["id"]
+        
+        self.setStyleSheet("border: 1px solid #ddd; border-radius: 5px; margin-bottom: 5px; background-color: white;")
+        
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        self._setup_header_row()
+        self._setup_detail_content()
+        
+        self.detail_widget.setVisible(False)
+        
+    def _create_label(self, text, bold=False, word_wrap=False, font_size=9):
+        """Helper para criar QLabel formatada."""
+        label = QLabel(text)
+        font = QFont("Arial", font_size) 
+        if bold:
+            font.setBold(True)
+        label.setFont(font)
+        label.setWordWrap(word_wrap)
+        return label
+        
+    def _setup_header_row(self):
+        """Cria a linha que mostra o Termo de Busca, Data e o número de artigos (Layout Estável)."""
+        header_widget = QWidget()
+        header_hbox = QHBoxLayout(header_widget)
+        header_hbox.setContentsMargins(10, 8, 10, 8)
+        
+        # Termo de Busca (Título Principal)
+        title_label = QLabel(f'<b>Consulta:</b> {self.entry_data.get("termo", "N/A")}')
+        title_label.setCursor(QCursor(Qt.PointingHandCursor))
+        title_label.setFont(QFont("Arial", 10))
+        title_label.setWordWrap(True)
+        header_hbox.addWidget(title_label, 1) # Stretch=1
+        
+        # Data da Pesquisa (Largura Fixa)
+        date_str = self.entry_data.get("data_pesquisa").toString('yyyy-MM-dd') if isinstance(self.entry_data.get("data_pesquisa"), QDate) else self.entry_data.get("data_pesquisa", "N/A")
+        date_label = self._create_label(f'Data: {date_str}')
+        date_label.setFixedWidth(120)
+        header_hbox.addWidget(date_label)
+        
+        # Qtd de Artigos (Largura Fixa)
+        count_label = self._create_label(f'Artigos: <b>{self.entry_data.get("artigos_encontrados", 0)}</b>')
+        count_label.setFixedWidth(60)
+        header_hbox.addWidget(count_label)
+        
+        # Ícone de Expansão
+        self.expand_icon = QLabel("▼")
+        self.expand_icon.setFixedWidth(20)
+        header_hbox.addWidget(self.expand_icon)
+        
+        self.main_layout.addWidget(header_widget)
+        self.header_widget = header_widget
+
+    def _setup_detail_content(self):
+        """Cria o widget com os detalhes (Tabela de Parâmetros, Resumo e Botão de Ação)."""
+        self.detail_widget = QFrame()
+        self.detail_widget.setStyleSheet(f"background-color: {CINZA_FUNDO}; padding: 10px; border-top: 1px solid #ddd;")
+        detail_layout = QVBoxLayout(self.detail_widget)
+        detail_layout.setSpacing(10)
+        
+        # --- Tabela de Detalhes ---
+        detail_table_frame = QFrame()
+        detail_table_layout = QGridLayout(detail_table_frame)
+        detail_table_layout.setSpacing(5)
+        
+        def add_detail_row(layout, row, label_text, value_text, is_link=False):
+            label = self._create_label(f'<b>{label_text}:</b>')
+            label.setFixedWidth(120)
+            layout.addWidget(label, row, 0, Qt.AlignTop)
+            
+            value = self._create_label(value_text, word_wrap=True)
+            if is_link:
+                value.setText(f'<a href="{value_text}" style="color: {AZUL_NEXUS};">{value_text}</a>')
+                value.setOpenExternalLinks(True) 
+            layout.addWidget(value, row, 1)
+
+        row_map = [
+            ("Termo Utilizado", self.entry_data.get("termo", "N/A")),
+            ("Período de Busca", self.entry_data.get("periodo", "N/A")),
+            ("Plataformas", self.entry_data.get("plataformas", "N/A")),
+        ]
+        
+        for i, (label_text, value_text) in enumerate(row_map):
+            add_detail_row(detail_table_layout, i, label_text, value_text)
+
+        detail_table_layout.setColumnStretch(1, 1)
+        detail_layout.addWidget(detail_table_frame)
+        
+        # --- Resumo de Resultados ---
+        resumo_vbox = QVBoxLayout()
+        resumo_vbox.setSpacing(5)
+        resumo_vbox.addWidget(self._create_label("Resumo da Consulta:", bold=True, font_size=10)) 
+        
+        resumo_text = self._create_label(self.entry_data.get("resumo_resultado", "Resumo não disponível."), word_wrap=True)
+        resumo_vbox.addWidget(resumo_text)
+        
+        detail_layout.addLayout(resumo_vbox)
+
+        # --- Botão Visualizar Artigos ---
+        action_hbox = QHBoxLayout()
+        action_hbox.addStretch(1) 
+
+        btn_view_articles = QPushButton('VISUALIZAR ARTIGOS')
+        style = f"background-color: {AZUL_NEXUS}; color: {BRANCO_PADRAO}; padding: 8px 15px; font-weight: bold; border-radius: 4px;"
+        btn_view_articles.setStyleSheet(style)
+        
+        # Conexão: Chama o método que delega a abertura da nova janela (HistoryWindow)
+        btn_view_articles.clicked.connect(self._view_articles)
+        
+        action_hbox.addWidget(btn_view_articles)
+        detail_layout.addLayout(action_hbox)
+        
+        self.main_layout.addWidget(self.detail_widget)
+
+    def _view_articles(self):
+        """Notifica a HistoryWindow para abrir a tela de artigos específicos."""
+        # Chama diretamente o método na instância da HistoryWindow (armazenada em self.history_window)
+        if self.history_window:
+            self.history_window.open_articles_for_history(
+                self.entry_data.get('articles', []), 
+                self.entry_data.get('termo', 'Consulta Histórica')
+            )
+
+    # --- Lógica de Expansão (Padrão) ---
+    def mousePressEvent(self, event):
+        if self.header_widget.geometry().contains(event.pos()):
+            self._toggle_expansion()
+        else:
+            super().mousePressEvent(event)
+
+    def _toggle_expansion(self):
+        self.is_expanded = not self.is_expanded
+        if self.is_expanded:
+            self.detail_widget.show()
+            self.expand_icon.setText("▲")
+        else:
+            self.detail_widget.hide()
+            self.expand_icon.setText("▼")
+
+# --- Janela Principal de Histórico ---
+
+class HistoryWindow(QMainWindow):
+    """
+    Janela para exibir o histórico de todas as consultas bem-sucedidas.
+    """
+    def __init__(self, parent=None, history_entries=None):
+        super().__init__(parent)
+        self.parent_search_window = parent 
+        self.artigos_window = None 
+        self.setWindowTitle('Nexus Pesquisa HC-UFPE - Histórico de Consultas')
+        self.setGeometry(100, 100, 950, 700) 
+        
+        self.all_history_data = history_entries if history_entries is not None else SIMULATED_HISTORY_ENTRIES
+        
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
+        
+        self._setup_header()
+        self._setup_date_filter() 
+        self._setup_content()
+        self.populate_history_list()
+
+    def _setup_header(self):
+        header_hbox = QHBoxLayout()
+        back_button = QPushButton('←')
+        back_button.setFixedSize(30, 30)
+        back_button.setStyleSheet(f"background-color: {AZUL_NEXUS}; color: {BRANCO_PADRAO}; border-radius: 15px; font-weight: bold;")
+        back_button.clicked.connect(self.return_to_parent)
+        header_hbox.addWidget(back_button, alignment=Qt.AlignLeft)
+        
+        self.title_label = QLabel('Histórico de Consultas Realizadas')
+        font = QFont("Arial", 18)
+        font.setBold(True)
+        self.title_label.setFont(font)
+        self.title_label.setAlignment(Qt.AlignCenter)
+        header_hbox.addWidget(self.title_label, 1) 
+        
+        header_hbox.addItem(QSpacerItem(30, 30, QSizePolicy.Fixed, QSizePolicy.Fixed)) 
+
+        self.main_layout.addLayout(header_hbox)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setStyleSheet("background-color: #ccc;")
+        self.main_layout.addWidget(separator)
+
+    def _setup_date_filter(self):
+        """Configura o filtro de data para consultas."""
+        filter_frame = QFrame()
+        filter_layout = QHBoxLayout(filter_frame)
+        filter_layout.setContentsMargins(0, 5, 0, 5) 
+        
+        filter_layout.addWidget(QLabel("Filtrar por Data de Consulta:"))
+        
+        filter_layout.addWidget(QLabel("De:"))
+        self.date_start_input = QDateEdit(self)
+        self.date_start_input.setDisplayFormat("dd/MM/yyyy")
+        self.date_start_input.setCalendarPopup(True)
+        self.date_start_input.setDate(QDate.currentDate().addYears(-1))
+        self.date_start_input.dateChanged.connect(self.filter_history_list)
+        filter_layout.addWidget(self.date_start_input)
+
+        filter_layout.addWidget(QLabel("Até:"))
+        self.date_end_input = QDateEdit(self)
+        self.date_end_input.setDisplayFormat("dd/MM/yyyy")
+        self.date_end_input.setCalendarPopup(True)
+        self.date_end_input.setDate(QDate.currentDate())
+        self.date_end_input.dateChanged.connect(self.filter_history_list)
+        filter_layout.addWidget(self.date_end_input)
+
+        filter_layout.addStretch(1)
+        self.main_layout.addWidget(filter_frame)
+
+    def _setup_content(self):
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet(f"background-color: {CINZA_FUNDO};")
+        self.history_vbox = QVBoxLayout(self.content_widget)
+        self.history_vbox.setSpacing(8) 
+        self.history_vbox.setContentsMargins(10, 10, 10, 10)
+        self.history_vbox.setAlignment(Qt.AlignTop)
+
+        self.scroll_area.setWidget(self.content_widget)
+        self.main_layout.addWidget(self.scroll_area, 1) 
+
+    def populate_history_list(self, filtered_data=None):
+        """Preenche a lista visual com os registros de histórico de consultas."""
+        while self.history_vbox.count():
+            item = self.history_vbox.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+            elif item.spacerItem() is not None:
+                del item
+
+        data_to_display = filtered_data if filtered_data is not None else self.all_history_data
+        
+        if not data_to_display:
+            no_entries_label = QLabel("Nenhuma pesquisa bem-sucedida registrada no período.")
+            no_entries_label.setAlignment(Qt.AlignCenter)
+            self.history_vbox.addWidget(no_entries_label)
+        else:
+            for entry in sorted(data_to_display, key=lambda x: x['data_pesquisa'], reverse=True):
+                # ⚠️ CORREÇÃO CRÍTICA: Passa 'self' (a instância da HistoryWindow) para o item.
+                item = HistoryListItem(entry, history_window_instance=self, parent=self)
+                self.history_vbox.addWidget(item)
+
+        self.history_vbox.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+    def filter_history_list(self):
+        """Filtra a lista de histórico com base nas datas selecionadas."""
+        start_date = self.date_start_input.date()
+        end_date = self.date_end_input.date()
+
+        if start_date > end_date:
+            print("A data inicial não pode ser maior que a data final.")
+            return
+
+        filtered_data = [
+            item for item in self.all_history_data 
+            if start_date <= item['data_pesquisa'] <= end_date
+        ]
+        
+        self.populate_history_list(filtered_data)
+        
+    def open_articles_for_history(self, articles, query_term):
+        """Abre a HistoricoArtigosWindow (filha) com os artigos da consulta."""
+        if self.artigos_window is None:
+            self.artigos_window = HistoricoArtigosWindow(
+                parent=self, 
+                articles=articles, 
+                query_term=query_term
+            )
+            self.artigos_window.destroyed.connect(self._reset_artigos_window)
+        else:
+            self.artigos_window.articles = articles
+            self.artigos_window.query_term = query_term
+            self.artigos_window.setWindowTitle(f'Nexus - Artigos da Consulta: {query_term}')
+            self.artigos_window.populate_article_list()
+
+        self.artigos_window.show()
+        self.hide() 
+        
+    def _reset_artigos_window(self):
+        """Reseta a referência quando a janela de artigos é fechada."""
+        self.artigos_window = None
+
+    # --- Métodos de Funcionalidade ---
+    def return_to_parent(self):
+        """Fecha esta janela e exibe a janela SearchWindow (Parent)."""
+        self.close()
+        if self.parent_search_window:
+            self.parent_search_window.show()

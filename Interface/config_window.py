@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, 
-    QScrollArea, QSizePolicy, QSpacerItem, QInputDialog # Adicionar QInputDialog se for usar a edição real
+    QScrollArea, QSizePolicy, QSpacerItem, QInputDialog, QDateEdit # <<< ADICIONADO QDateEdit
 )
 from PySide6.QtGui import QFont, QCursor
 from PySide6.QtCore import Qt, QDate
@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     ]
 }
 
-# --- Widget Customizado para a Linha de Termo de Busca ---
+# --- Widget Customizado para a Linha de Termo de Busca (Mantido) ---
 
 class SearchTermItem(QFrame):
     """Representa um termo de busca na lista com botões de ação."""
@@ -62,7 +62,6 @@ class SearchTermItem(QFrame):
         btn_exclude.clicked.connect(self._exclude_term)
         main_hbox.addWidget(btn_exclude)
         
-        # O parent agora é a ConfigWindow, que tem os métodos de manipulação
         self.config_window = parent 
 
     def _edit_term(self):
@@ -155,32 +154,38 @@ class ConfigWindow(QMainWindow):
         self.platform_hbox.addStretch(1)
         content_vbox.addLayout(self.platform_hbox)
 
-        # 2. Período de Busca Padrão
+        # 2. Período de Busca Padrão (AGORA USANDO QDateEdit)
         content_vbox.addWidget(QLabel('Período de busca'))
         date_hbox = QHBoxLayout()
 
         date_hbox.addWidget(QLabel('A partir de'))
-        self.date_start_input = QLineEdit(self.current_config['date_start'])
-        self.date_start_input.setFixedWidth(100)
+        
+        # === QDateEdit - Data de Início ===
+        self.date_start_input = QDateEdit(self)
+        self.date_start_input.setDisplayFormat("dd/MM/yyyy")
+        self.date_start_input.setCalendarPopup(True) 
+        self.date_start_input.setFixedWidth(130)
         self.date_start_input.setStyleSheet("padding: 5px; border: 1px solid #ccc;")
+        
+        start_date = QDate.fromString(self.current_config['date_start'], "dd/MM/yyyy")
+        self.date_start_input.setDate(start_date if start_date.isValid() else QDate.currentDate())
+        
         date_hbox.addWidget(self.date_start_input)
         
-        btn_calendar_start = QPushButton('📅')
-        btn_calendar_start.setFixedSize(30, 30)
-        btn_calendar_start.setStyleSheet(f"background-color: {CINZA_FUNDO}; border: 1px solid #ccc; margin-left: -1px;")
-        date_hbox.addWidget(btn_calendar_start)
-        
         date_hbox.addWidget(QLabel('Até'))
-        self.date_end_input = QLineEdit(self.current_config['date_end'])
-        self.date_end_input.setFixedWidth(100) 
+        
+        # === QDateEdit - Data Final ===
+        self.date_end_input = QDateEdit(self)
+        self.date_end_input.setDisplayFormat("dd/MM/yyyy")
+        self.date_end_input.setCalendarPopup(True) 
+        self.date_end_input.setFixedWidth(130) 
         self.date_end_input.setStyleSheet("padding: 5px; border: 1px solid #ccc;")
+        
+        end_date = QDate.fromString(self.current_config['date_end'], "dd/MM/yyyy")
+        self.date_end_input.setDate(end_date if end_date.isValid() else QDate.currentDate())
+
         date_hbox.addWidget(self.date_end_input)
-
-        btn_calendar_end = QPushButton('📅')
-        btn_calendar_end.setFixedSize(30, 30)
-        btn_calendar_end.setStyleSheet(f"background-color: {CINZA_FUNDO}; border: 1px solid #ccc; margin-left: -1px;")
-        date_hbox.addWidget(btn_calendar_end)
-
+        
         date_hbox.addStretch(1)
         content_vbox.addLayout(date_hbox)
 
@@ -216,7 +221,7 @@ class ConfigWindow(QMainWindow):
         self.scroll_area.setWidget(self.term_list_widget)
         content_vbox.addWidget(self.scroll_area, 1)
         
-        # 5. Botão de Salvar (Apenas simulação)
+        # 5. Botão de Salvar
         btn_save = QPushButton('SALVAR CONFIGURAÇÃO')
         btn_save.setStyleSheet(f"background-color: green; color: {BRANCO_PADRAO}; padding: 12px; font-weight: bold; border-radius: 5px; margin-top: 20px;")
         btn_save.clicked.connect(self._save_config)
@@ -278,7 +283,7 @@ class ConfigWindow(QMainWindow):
         new_term = self.new_term_input.text().strip()
         self._internal_add_term(new_term)
 
-    # NOVO MÉTODO: Chamado externamente pela SearchWindow
+    # MÉTODO: Chamado externamente pela SearchWindow
     def add_search_term_external(self, term):
         """Adiciona um termo de busca vindo de uma fonte externa (ex: LogWindow)."""
         self._internal_add_term(term)
@@ -325,9 +330,13 @@ class ConfigWindow(QMainWindow):
             return False
 
     def _save_config(self):
-        """Salva a configuração atual (simulada) e aplica na tela principal."""
-        self.current_config['date_start'] = self.date_start_input.text()
-        self.current_config['date_end'] = self.date_end_input.text()
+        """
+        Salva a configuração atual (simulada) e aplica na tela principal.
+        Garante que a data seja salva como string (dd/MM/yyyy).
+        """
+        # Coleta a data do QDateEdit e salva como string formatada
+        self.current_config['date_start'] = self.date_start_input.date().toString("dd/MM/yyyy")
+        self.current_config['date_end'] = self.date_end_input.date().toString("dd/MM/yyyy")
 
         print("Configuração salva (Simulação):")
         print(self.current_config)
@@ -342,3 +351,15 @@ class ConfigWindow(QMainWindow):
         self.close()
         if self.parent_window:
             self.parent_window.show()
+            
+    # --- MÉTODOS EXTERNOS DE INTERFACE (Setters para a SearchWindow chamar) ---
+    
+    def set_start_date(self, date_obj):
+        """Define a data de início do QDateEdit da ConfigWindow."""
+        if date_obj and isinstance(date_obj, QDate):
+             self.date_start_input.setDate(date_obj)
+
+    def set_end_date(self, date_obj):
+        """Define a data final do QDateEdit da ConfigWindow."""
+        if date_obj and isinstance(date_obj, QDate):
+             self.date_end_input.setDate(date_obj)

@@ -11,6 +11,9 @@ import sys
 from Interface.historico_artigos_window import HistoricoArtigosWindow 
 
 # --- Definições de Cores ---
+from database.db_manager import DatabaseManager
+
+# --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
 CINZA_FUNDO = "#f7f7f7"
 BRANCO_PADRAO = "white"
@@ -223,7 +226,28 @@ class HistoryWindow(QMainWindow):
         self.setWindowTitle('Nexus Pesquisa HC-UFPE - Histórico de Consultas')
         self.setGeometry(100, 100, 950, 700) 
         
-        self.all_history_data = history_entries if history_entries is not None else SIMULATED_HISTORY_ENTRIES
+        # --- INTEGRAÇÃO COM BANCO DE DADOS ---
+        try:
+            self.db_manager = DatabaseManager()
+            print("[OK] DatabaseManager inicializado na HistoryWindow")
+        except Exception as e:
+            print(f"[AVISO] Erro ao inicializar DatabaseManager: {e}")
+            self.db_manager = None
+
+        # Carregar histórico do BD se disponível, senão usar dados simulados
+        if self.db_manager and history_entries is None:
+            try:
+                # Implement _load_history_from_database para retornar dados no formato esperado
+                self.all_history_data = self._load_history_from_database()
+                if self.all_history_data:
+                    print(f"[OK] {len(self.all_history_data)} históricos carregados do BD")
+                else:
+                    self.all_history_data = SIMULATED_HISTORY_ENTRIES
+            except Exception as e:
+                print(f"[AVISO] Erro ao carregar histórico do BD: {e}")
+                self.all_history_data = SIMULATED_HISTORY_ENTRIES
+        else:
+            self.all_history_data = history_entries if history_entries is not None else SIMULATED_HISTORY_ENTRIES
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -321,6 +345,38 @@ class HistoryWindow(QMainWindow):
                 self.history_vbox.addWidget(item)
 
         self.history_vbox.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+    def _load_history_from_database(self):
+        """Carrega o histórico de buscas do banco e transforma no formato esperado pela UI."""
+        if not getattr(self, 'db_manager', None):
+            return []
+
+        try:
+            searches = self.db_manager.read_search_history(limit=200)
+            ui_entries = []
+            for s in searches:
+                # s is SearchHistory dataclass; convert fields
+                date_q = None
+                try:
+                    if s.search_date:
+                        date_q = QDate(s.search_date.year, s.search_date.month, s.search_date.day)
+                except Exception:
+                    date_q = QDate.currentDate()
+
+                ui_entries.append({
+                    'id': s.id,
+                    'termo': s.search_term,
+                    'data_pesquisa': date_q or QDate.currentDate(),
+                    'plataformas': s.platforms,
+                    'artigos_encontrados': s.results_count,
+                    'periodo': f"{s.date_start or ''} - {s.date_end or ''}",
+                    'resumo_resultado': f"Busca salva no BD: {s.search_term}",
+                    'articles': []
+                })
+            return ui_entries
+        except Exception as e:
+            print(f"[AVISO] Erro ao ler histórico do BD: {e}")
+            return []
 
     def filter_history_list(self):
         """Filtra a lista de histórico com base nas datas selecionadas."""

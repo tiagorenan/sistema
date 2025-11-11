@@ -1,10 +1,13 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, 
-    QScrollArea, QSizePolicy, QSpacerItem, QInputDialog, QDateEdit # <<< ADICIONADO QDateEdit
+    QScrollArea, QSizePolicy, QSpacerItem, QInputDialog, QDateEdit,
+    QMessageBox
 )
 from PySide6.QtGui import QFont, QCursor
 from PySide6.QtCore import Qt, QDate
+from database.db_manager import DatabaseManager
+from database.models import AffiliationVariation
 
 # --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
@@ -12,70 +15,70 @@ CINZA_FUNDO = "#f7f7f7"
 BRANCO_PADRAO = "white"
 VERMELHO_EXCLUIR = "#dc3545"
 
-# Dados simulados para o padrão de busca
+# Dados padrão para o padrão de busca
 DEFAULT_CONFIG = {
     'platforms': ['Scielo', 'PubMed', 'Lilacs'],
     'date_start': '01/01/2021',
     'date_end': QDate.currentDate().toString("dd/MM/yyyy"),
-    'search_terms': [
-        "HC*EBSERH",
-        '"HC*UFPE"',
-        '"Hospital das Clínicas - UFPE"',
-        '"Hospital das Clínicas - Universidade Federal de Pernambuco"',
-        '"Hospital das Clínicas at the Universidade Federal de Pernambuco"',
-        '"Hospital das Clínicas da UFPE"',
-        '"Hospital das Clínicas da Universidade Federal de Pernambuco"',
-        '"Hospital das Clínicas de Pernambuco"',
-    ]
+    'search_terms': []  # Será preenchido do banco de dados
 }
 
-# --- Widget Customizado para a Linha de Termo de Busca (Mantido) ---
+# --- Widget Customizado para a Linha de Termo de Busca ---
 
 class SearchTermItem(QFrame):
     """Representa um termo de busca na lista com botões de ação."""
 
-    def __init__(self, term, parent=None):
+    def __init__(self, term_id, original_text, normalized_text, parent=None):
         super().__init__(parent)
-        self.term = term
+        self.term_id = term_id
+        self.original_text = original_text
+        self.normalized_text = normalized_text
+        self.config_window = parent
+        
         self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet("border: 1px solid #ddd; border-radius: 5px; margin-bottom: 3px; background-color: white;")
         
         main_hbox = QHBoxLayout(self)
         main_hbox.setContentsMargins(10, 5, 10, 5)
         
-        self.term_label = QLabel(term)
+        # Exibe o texto original (o que o usuário vê)
+        self.term_label = QLabel(original_text)
         self.term_label.setWordWrap(True)
         self.term_label.setFont(QFont("Arial", 10))
         main_hbox.addWidget(self.term_label, 1)
 
         # Botão Editar
-        btn_edit = QPushButton('Editar ✎')
+        btn_edit = QPushButton('Editar')
         btn_edit.setStyleSheet(f"color: {AZUL_NEXUS}; border: none; padding: 5px;")
         btn_edit.setCursor(QCursor(Qt.PointingHandCursor))
         btn_edit.clicked.connect(self._edit_term)
         main_hbox.addWidget(btn_edit)
 
         # Botão Excluir
-        btn_exclude = QPushButton('Excluir 🗑')
+        btn_exclude = QPushButton('Excluir')
         btn_exclude.setStyleSheet(f"color: {VERMELHO_EXCLUIR}; border: none; padding: 5px;")
         btn_exclude.setCursor(QCursor(Qt.PointingHandCursor))
         btn_exclude.clicked.connect(self._exclude_term)
         main_hbox.addWidget(btn_exclude)
-        
-        self.config_window = parent 
 
     def _edit_term(self):
         """Abre uma caixa de diálogo para editar o termo."""
         if self.config_window:
-            new_term, ok = QInputDialog.getText(self, 'Editar Termo de Busca', 'Novo Termo:', QLineEdit.Normal, self.term)
+            new_term, ok = QInputDialog.getText(
+                self, 
+                'Editar Termo de Busca', 
+                'Novo Termo:', 
+                QLineEdit.Normal, 
+                self.original_text
+            )
             
-            if ok and new_term and new_term.strip() != self.term:
-                self.config_window.update_search_term(self.term, new_term.strip())
+            if ok and new_term and new_term.strip() != self.original_text:
+                self.config_window.update_search_term(self.term_id, new_term.strip())
 
     def _exclude_term(self):
         """Remove o termo de busca através da janela de configuração."""
-        if self.config_window and hasattr(self.config_window, 'remove_search_term'):
-            self.config_window.remove_search_term(self.term)
+        if self.config_window:
+            self.config_window.remove_search_term(self.term_id)
         self.deleteLater() 
 
 # --- Janela de Configuração Principal ---
@@ -83,6 +86,7 @@ class SearchTermItem(QFrame):
 class ConfigWindow(QMainWindow):
     """
     Janela para editar os padrões de busca, plataformas e datas predefinidas.
+    Conecta-se ao banco de dados para gerenciar variações de afiliação.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -90,7 +94,11 @@ class ConfigWindow(QMainWindow):
         self.setGeometry(200, 200, 700, 800)
         
         self.parent_window = parent
+        self.db = None
         self.current_config = DEFAULT_CONFIG.copy()
+        
+        # Inicializa o banco de dados
+        self._initialize_database()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -99,7 +107,17 @@ class ConfigWindow(QMainWindow):
         self._setup_header()
         self._setup_content()
         
+        # Carrega termos do banco de dados
         self.populate_search_terms()
+
+    def _initialize_database(self):
+        """Inicializa a conexão com o banco de dados."""
+        try:
+            self.db = DatabaseManager()
+            self.db.connect()
+        except Exception as e:
+            print(f"[ERRO] Falha ao conectar ao banco de dados: {e}")
+            QMessageBox.warning(self, "Erro de Conexão", f"Não foi possível conectar ao banco de dados:\n{e}")
 
     def _setup_header(self):
         header_hbox = QHBoxLayout()
@@ -262,7 +280,7 @@ class ConfigWindow(QMainWindow):
         print(f"Plataformas selecionadas: {self.current_config['platforms']}")
 
     def populate_search_terms(self):
-        """Preenche a lista visual com os termos de busca atuais."""
+        """Preenche a lista visual com os termos de busca do banco de dados."""
         
         # Limpa widgets existentes
         while self.term_list_vbox.count() > 0:
@@ -270,10 +288,34 @@ class ConfigWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         
-        # Adiciona os termos
-        for term in self.current_config['search_terms']:
-            item = SearchTermItem(term, parent=self)
-            self.term_list_vbox.addWidget(item)
+        # Carrega termos do banco de dados (HC-UFPE)
+        try:
+            if self.db:
+                variations = self.db.read_affiliation_variations_by_institution("HC-UFPE")
+                
+                if variations:
+                    for variation in variations:
+                        item = SearchTermItem(
+                            term_id=variation.id,
+                            original_text=variation.original_text,
+                            normalized_text=variation.normalized_text,
+                            parent=self
+                        )
+                        self.term_list_vbox.addWidget(item)
+                else:
+                    msg = QLabel("Nenhum termo de busca configurado para HC-UFPE.")
+                    msg.setStyleSheet("color: #999; padding: 20px;")
+                    self.term_list_vbox.addWidget(msg)
+            else:
+                msg = QLabel("Erro: Banco de dados não conectado.")
+                msg.setStyleSheet("color: red; padding: 20px;")
+                self.term_list_vbox.addWidget(msg)
+                
+        except Exception as e:
+            print(f"[ERRO] Falha ao carregar termos de busca: {e}")
+            msg = QLabel(f"Erro ao carregar termos: {str(e)}")
+            msg.setStyleSheet("color: red; padding: 20px;")
+            self.term_list_vbox.addWidget(msg)
 
         # Adiciona espaçador para garantir que a lista fique no topo
         self.term_list_vbox.addStretch(1)
@@ -283,83 +325,154 @@ class ConfigWindow(QMainWindow):
         new_term = self.new_term_input.text().strip()
         self._internal_add_term(new_term)
 
-    # MÉTODO: Chamado externamente pela SearchWindow
     def add_search_term_external(self, term):
         """Adiciona um termo de busca vindo de uma fonte externa (ex: LogWindow)."""
         self._internal_add_term(term)
         
     def _internal_add_term(self, new_term):
-        """Lógica central para adicionar um termo (manual ou externo)."""
-        if new_term and new_term not in self.current_config['search_terms']:
-            self.current_config['search_terms'].append(new_term)
-            self.new_term_input.clear()
-            self.populate_search_terms()
-            self._save_config() # Salva automaticamente
-            print(f"Termo adicionado: {new_term}")
-            return True
-        elif new_term:
-            print(f"Termo '{new_term}' já existe.")
+        """Lógica central para adicionar um termo (manual ou externo) ao banco de dados."""
+        if not new_term:
+            QMessageBox.warning(self, "Campo vazio", "Digite um termo de busca antes de adicionar.")
             return False
-        return False
-    
-    def remove_search_term(self, term_to_remove):
-        """Remove um termo de busca da lista e atualiza a UI."""
-        if term_to_remove in self.current_config['search_terms']:
-            self.current_config['search_terms'].remove(term_to_remove)
-            self.populate_search_terms()
-            print(f"Termo removido: {term_to_remove}")
-            self._save_config() # Salva automaticamente após remover
-            return True
-        return False
-    
-    def update_search_term(self, old_term, new_term):
-        """Atualiza um termo de busca na lista."""
+        
         try:
-            index = self.current_config['search_terms'].index(old_term)
-            if new_term not in self.current_config['search_terms']:
-                self.current_config['search_terms'][index] = new_term
+            if self.db:
+                # Verifica se o termo já existe
+                variations = self.db.read_affiliation_variations_by_institution("HC-UFPE")
+                existing_terms = [v.original_text for v in variations]
+                
+                if new_term in existing_terms:
+                    QMessageBox.information(self, "Termo duplicado", f"O termo '{new_term}' já existe.")
+                    return False
+                
+                # Cria nova variação de afiliação
+                new_variation = AffiliationVariation(
+                    original_text=new_term,
+                    normalized_text=new_term,  # Pode ser normalizado conforme necessário
+                    institution="HC-UFPE",
+                    platform="Manual"
+                )
+                
+                # Insere no banco de dados
+                self.db.create_affiliation_variation(new_variation)
+                self.new_term_input.clear()
                 self.populate_search_terms()
-                self._save_config()
-                print(f"Termo atualizado de '{old_term}' para '{new_term}'.")
+                print(f"[OK] Termo adicionado: {new_term}")
                 return True
             else:
-                print(f"O termo '{new_term}' já existe na lista.")
+                QMessageBox.critical(self, "Erro", "Banco de dados não conectado.")
                 return False
-        except ValueError:
-            print(f"Erro: O termo original '{old_term}' não foi encontrado.")
+                
+        except Exception as e:
+            print(f"[ERRO] Falha ao adicionar termo: {e}")
+            QMessageBox.critical(self, "Erro", f"Falha ao adicionar termo:\n{e}")
+            return False
+    
+    def remove_search_term(self, term_id):
+        """Remove um termo de busca do banco de dados e atualiza a UI."""
+        try:
+            if self.db:
+                success = self.db.delete_affiliation_variation(term_id)
+                if success:
+                    self.populate_search_terms()
+                    print(f"[OK] Termo removido (ID: {term_id})")
+                    return True
+                else:
+                    QMessageBox.warning(self, "Erro", "Não foi possível remover o termo.")
+                    return False
+            else:
+                QMessageBox.critical(self, "Erro", "Banco de dados não conectado.")
+                return False
+        except Exception as e:
+            print(f"[ERRO] Falha ao remover termo: {e}")
+            QMessageBox.critical(self, "Erro", f"Falha ao remover termo:\n{e}")
+            return False
+    
+    def update_search_term(self, term_id, new_term):
+        """Atualiza um termo de busca no banco de dados."""
+        try:
+            if self.db:
+                # Lê a variação existente
+                variation = self.db.read_affiliation_variation(term_id)
+                if not variation:
+                    QMessageBox.warning(self, "Erro", "Termo não encontrado.")
+                    return False
+                
+                # Verifica se o novo termo já existe
+                variations = self.db.read_affiliation_variations_by_institution("HC-UFPE")
+                existing_terms = [v.original_text for v in variations if v.id != term_id]
+                
+                if new_term in existing_terms:
+                    QMessageBox.information(self, "Duplicado", f"O termo '{new_term}' já existe.")
+                    return False
+                
+                # Atualiza o termo
+                variation.original_text = new_term
+                variation.normalized_text = new_term
+                
+                success = self.db.update_affiliation_variation(variation)
+                if success:
+                    self.populate_search_terms()
+                    print(f"[OK] Termo atualizado: '{new_term}'")
+                    return True
+                else:
+                    QMessageBox.warning(self, "Erro", "Não foi possível atualizar o termo.")
+                    return False
+            else:
+                QMessageBox.critical(self, "Erro", "Banco de dados não conectado.")
+                return False
+        except Exception as e:
+            print(f"[ERRO] Falha ao atualizar termo: {e}")
+            QMessageBox.critical(self, "Erro", f"Falha ao atualizar termo:\n{e}")
             return False
 
     def _save_config(self):
         """
-        Salva a configuração atual (simulada) e aplica na tela principal.
+        Salva a configuração atual (datas e plataformas) e aplica na tela principal.
         Garante que a data seja salva como string (dd/MM/yyyy).
         """
-        # Coleta a data do QDateEdit e salva como string formatada
-        self.current_config['date_start'] = self.date_start_input.date().toString("dd/MM/yyyy")
-        self.current_config['date_end'] = self.date_end_input.date().toString("dd/MM/yyyy")
+        try:
+            # Coleta a data do QDateEdit e salva como string formatada
+            self.current_config['date_start'] = self.date_start_input.date().toString("dd/MM/yyyy")
+            self.current_config['date_end'] = self.date_end_input.date().toString("dd/MM/yyyy")
 
-        print("Configuração salva (Simulação):")
-        print(self.current_config)
+            print("[OK] Configuracao salva:")
+            print(f"  Datas: {self.current_config['date_start']} a {self.current_config['date_end']}")
+            print(f"  Plataformas: {self.current_config['platforms']}")
 
-        # Se houver uma janela principal, atualiza seus filtros
-        if self.parent_window and hasattr(self.parent_window, 'apply_default_config'):
-            self.parent_window.apply_default_config(self.current_config)
+            # Se houver uma janela principal, atualiza seus filtros
+            if self.parent_window and hasattr(self.parent_window, 'apply_default_config'):
+                self.parent_window.apply_default_config(self.current_config)
+                
+            QMessageBox.information(self, "Sucesso", "Configuração salva com sucesso!")
+        except Exception as e:
+            print(f"[ERRO] Falha ao salvar configuração: {e}")
+            QMessageBox.critical(self, "Erro", f"Falha ao salvar configuração:\n{e}")
             
     def return_to_search(self):
         """Fecha esta janela e exibe a janela pai (SearchWindow)."""
-        self._save_config() # Garante que as mudanças sejam salvas ao voltar
+        self._save_config()  # Garante que as mudanças sejam salvas ao voltar
         self.close()
         if self.parent_window:
             self.parent_window.show()
+
+    def closeEvent(self, event):
+        """Fecha a conexão com o BD quando a janela é fechada."""
+        try:
+            if self.db:
+                self.db.close()
+        except Exception as e:
+            print(f"[AVISO] Erro ao fechar conexao com BD: {e}")
+        event.accept()
             
     # --- MÉTODOS EXTERNOS DE INTERFACE (Setters para a SearchWindow chamar) ---
     
     def set_start_date(self, date_obj):
         """Define a data de início do QDateEdit da ConfigWindow."""
         if date_obj and isinstance(date_obj, QDate):
-             self.date_start_input.setDate(date_obj)
+            self.date_start_input.setDate(date_obj)
 
     def set_end_date(self, date_obj):
         """Define a data final do QDateEdit da ConfigWindow."""
         if date_obj and isinstance(date_obj, QDate):
-             self.date_end_input.setDate(date_obj)
+            self.date_end_input.setDate(date_obj)

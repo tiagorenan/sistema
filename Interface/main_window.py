@@ -2,7 +2,7 @@ import sys
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, 
-    QSpacerItem, QSizePolicy, QButtonGroup, QDateEdit
+    QSpacerItem, QSizePolicy, QButtonGroup, QDateEdit, QMessageBox
 )
 from PySide6.QtGui import QFont, QIcon, QPixmap 
 from PySide6.QtCore import Qt, QEvent, QRect, QDate
@@ -12,6 +12,30 @@ from Interface.results_window import ResultsWindow, SIMULATED_VALIDATED_ARTICLES
 from Interface.config_window import ConfigWindow, DEFAULT_CONFIG 
 from Interface.log_windows import ErrorLogWindow 
 from Interface.historico_window import HistoryWindow 
+
+# Importações para busca com termos padrão
+from processing.search_helper import get_search_terms_for_affiliation, format_search_query_for_pubmed
+from database.db_manager import DatabaseManager 
+from database.models import SearchHistory
+
+
+import sys
+import os
+
+# --- FUNÇÃO DE AJUSTE DE CAMINHO PARA PYINSTALLER ---
+def resource_path(relative_path):
+    """Obtém o caminho absoluto para recursos, para funcionar no modo dev e no executável."""
+    try:
+        # PyInstaller cria um caminho temporário (_MEIPASS) e coloca os recursos lá
+        base_path = sys._MEIPASS
+    except Exception:
+        # Modo normal (quando não é executável)
+        # O __main__.py executa a partir da raiz, então usamos a pasta base do projeto
+        base_path = os.path.abspath(os.path.dirname(__file__))
+
+    # Retorna o caminho completo
+    return os.path.join(base_path, relative_path)
+# ---------------------------------------------------
 
 # --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
@@ -29,7 +53,7 @@ class SearchWindow(QMainWindow):
         
         # --- Definir o Ícone da Janela (Logo Nexus) ---
         try:
-            icon_path = "Interface/imagens/logo_azul.png" 
+            icon_path = resource_path("../interface/imagens/logo_azul.png")
             self.setWindowIcon(QIcon(icon_path))
             print(f"Ícone da janela (Nexus) carregado de: {icon_path}")
         except Exception as e:
@@ -41,8 +65,17 @@ class SearchWindow(QMainWindow):
         self.history_window = None 
         self.is_menu_open = False
         
+        # --- INTEGRAÇÃO COM BANCO DE DADOS ---
+        try:
+            self.db_manager = DatabaseManager()
+            print("[OK] DatabaseManager inicializado na SearchWindow")
+        except Exception as e:
+            print(f"[AVISO] Erro ao inicializar DatabaseManager: {e}")
+            self.db_manager = None
+        
         self.default_search_config = DEFAULT_CONFIG.copy()
-        self.current_search_scope = 'Tema'      
+        self.current_search_scope = 'Tema'
+        self.current_search_id = None  # ID da busca atual no BD
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -57,7 +90,7 @@ class SearchWindow(QMainWindow):
         
         self.installEventFilter(self)
         self.apply_default_config(self.default_search_config, initial=True)
-        self._update_stats_display()
+        self._update_stats_display_from_database()
 
     # --- MÉTODOS DE CONTROLE DE MENU (Movidos para o topo para evitar Attribute Error) ---
     def toggle_menu(self):
@@ -142,7 +175,7 @@ class SearchWindow(QMainWindow):
         
         # Opcional: Adicionar a logo do Nexus (menor) ao lado do título da aplicação no cabeçalho
         nexus_logo_header_label = QLabel()
-        nexus_logo_pixmap_small = QPixmap("Interface/imagens/logo_azul.png")
+        nexus_logo_pixmap_small = QPixmap(resource_path("interface/imagens/logo_azul.png"))
         if not nexus_logo_pixmap_small.isNull():
             scaled_nexus_pixmap_small = nexus_logo_pixmap_small.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             nexus_logo_header_label.setPixmap(scaled_nexus_pixmap_small)
@@ -274,14 +307,41 @@ class SearchWindow(QMainWindow):
             self.platform_stat_inputs[platform] = input_field
         self.stats_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), len(platforms) + 2, 0) 
 
-    def _update_stats_display(self):
-        total = 500
-        stats = {
-            'PubMed': 250,
-            'Scielo': 150,
-            'Lilacs': 75,
-            'Capes Periódicos': 25
-        }
+    def _update_stats_display_from_database(self):
+        """Carrega estatísticas do BD: total de artigos e quantidade por plataforma."""
+        if not self.db_manager:
+            print("[AVISO] Estatísticas simuladas - DatabaseManager não disponível")
+            # Fallback para dados simulados
+            total = 500
+            stats = {
+                'PubMed': 250,
+                'Scielo': 150,
+                'Lilacs': 75,
+                'Capes Periódicos': 25
+            }
+        else:
+            try:
+                db_stats = self.db_manager.get_stats()
+                total = db_stats.get('articles_total', 0)
+                # Para exibir por plataforma usamos uma aproximação: artigos validados totais
+                stats = {
+                    'PubMed': db_stats.get('articles_validated', 0),
+                    'Scielo': 0,
+                    'Lilacs': 0,
+                    'Capes Periódicos': 0
+                }
+                print(f"[OK] Estatísticas carregadas do BD: {total} artigos no total")
+            except Exception as e:
+                print(f"[AVISO] Erro ao carregar estatísticas do BD: {e}")
+                # Fallback para simulados
+                total = 500
+                stats = {
+                    'PubMed': 250,
+                    'Scielo': 150,
+                    'Lilacs': 75,
+                    'Capes Periódicos': 25
+                }
+        
         self.total_input.setText(str(total))
         for platform, count in stats.items():
             if platform in self.platform_stat_inputs:
@@ -300,7 +360,7 @@ class SearchWindow(QMainWindow):
 
         # --- NOVO: Logo do Hospital (HC-UFPE) no rodapé, AGORA MAIOR e à DIREITA ---
         hc_logo_label = QLabel()
-        hc_logo_pixmap = QPixmap("Interface/imagens/hc_logo.png") # Caminho atualizado para .png
+        hc_logo_pixmap = QPixmap(resource_path("interface/imagens/hc_logo.png"))
         if not hc_logo_pixmap.isNull():
             # Redimensionar para um tamanho maior, ajuste conforme necessário
             scaled_hc_pixmap = hc_logo_pixmap.scaled(150, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation) # Exemplo: 150 largura, 45 altura
@@ -374,21 +434,104 @@ class SearchWindow(QMainWindow):
     # --- Métodos de Ação e Navegação ---
     
     def iniciar_busca(self):
+        """
+        Inicia a busca de artigos usando termos cadastrados na BD.
+        
+        Se o usuário não digitou um termo manual, usa os termos padrão
+        de afiliação do HC-UFPE cadastrados em affiliation_variations.
+        
+        Salva a busca realizada na tabela 'searches' do BD.
+        """
         search_term_manual = self.search_term_input.text().strip()
         self.default_search_config['date_start'] = self.date_start_input.date().toString("dd/MM/yyyy")
         self.default_search_config['date_end'] = self.date_end_input.date().toString("dd/MM/yyyy")
         
         if search_term_manual:
+            # Usuário digitou um termo manualmente
             term_used = search_term_manual
             platforms_used = self.default_search_config['platforms']
         else:
-            term_used = "Padrão: " + ", ".join(self.default_search_config['search_terms'][:3]) + "..."
-            platforms_used = self.default_search_config['platforms']
+            # Usar termos padrão cadastrados na tabela affiliation_variations
+            try:
+                default_terms = get_search_terms_for_affiliation("HC-UFPE")
+                if default_terms:
+                    # Formatar como query PubMed (ex: ("termo1" OR "termo2" OR ...))
+                    term_used = format_search_query_for_pubmed(default_terms)
+                    print(f"🔍 Usando {len(default_terms)} variações de afiliação para busca automática")
+                else:
+                    # Fallback para termos configurados
+                    term_used = "Padrão: " + ", ".join(self.default_search_config['search_terms'][:3]) + "..."
+            except Exception as e:
+                print(f"[AVISO] Erro ao recuperar termos padrão: {e}")
+                term_used = "Padrão: " + ", ".join(self.default_search_config['search_terms'][:3]) + "..."
             
-        print(f"Iniciando busca: Termo='{term_used}' | Plataformas: {platforms_used}")
-        print(f"Período: {self.default_search_config['date_start']} a {self.default_search_config['date_end']}")
+            platforms_used = self.default_search_config['platforms']
         
-        articles = SIMULATED_VALIDATED_ARTICLES 
+        print(f"[OK] Iniciando busca: Termo='{term_used[:50]}...' | Plataformas: {platforms_used}")
+        print(f"[OK] Período: {self.default_search_config['date_start']} a {self.default_search_config['date_end']}")
+        
+        # --- SALVAR BUSCA NO BD ---
+        if self.db_manager:
+            try:
+                search_obj = SearchHistory(
+                    search_term=term_used,
+                    platforms=",".join(platforms_used),
+                    date_start=self.default_search_config['date_start'],
+                    date_end=self.default_search_config['date_end'],
+                    results_count=0
+                )
+                self.current_search_id = self.db_manager.create_search_history(search_obj)
+                print(f"[OK] Busca salva no BD com ID: {self.current_search_id}")
+            except Exception as e:
+                print(f"[AVISO] Erro ao salvar busca no BD: {e}")
+                self.current_search_id = None
+        
+        # Coletar artigos reais da(s) plataforma(s) selecionada(s).
+        articles = []
+        # Apenas PubMed por enquanto (coletores para outras plataformas serão adicionados separadamente)
+        if 'PubMed' in platforms_used:
+            try:
+                # Import interno para evitar import cycles/overhead na inicialização
+                from processing.collectors.pubmed import search_by_affiliation
+
+                # Construir termos: se o usuário informou manualmente usamos o termo fornecido,
+                # caso contrário recuperamos os termos padrão de afiliação do HC-UFPE.
+                if search_term_manual:
+                    pub_terms = [search_term_manual]
+                else:
+                    try:
+                        pub_terms = get_search_terms_for_affiliation("HC-UFPE")
+                    except Exception:
+                        pub_terms = []
+
+                pub_results = search_by_affiliation(pub_terms,
+                                                    date_start=self.default_search_config['date_start'],
+                                                    date_end=self.default_search_config['date_end'],
+                                                    max_results=200)
+
+                # Mapear o formato retornado pelo coletor para o formato esperado pela UI (Português)
+                for idx, r in enumerate(pub_results, start=1):
+                    mapped = {
+                        # Usar um ID inteiro local para a UI (sinais Qt esperam int)
+                        'id': idx,
+                        'titulo': r.get('title', r.get('titulo', 'N/A')),
+                        'autores': r.get('authors', r.get('autores', '')),
+                        'doi': r.get('doi', ''),
+                        'publicacao': f"{r.get('publication_date','N/A')} (PubMed)",
+                        'link': r.get('url', ''),
+                        'resumo': r.get('abstract', r.get('resumo', '')),
+                        'status': 'NOVO'
+                    }
+                    articles.append(mapped)
+
+                print(f"[OK] PubMed: {len(pub_results)} artigos encontrados e mapeados")
+            except Exception as e:
+                print(f"[AVISO] Erro ao consultar PubMed: {e}")
+
+        # Se nenhuma plataforma retornou artigos, usar dados simulados como fallback
+        if not articles:
+            articles = SIMULATED_VALIDATED_ARTICLES
+
         self.open_results_window(articles)
 
     def open_results_window(self, articles):
@@ -425,7 +568,32 @@ class SearchWindow(QMainWindow):
     def open_log_window(self):
         """Cria e mostra a janela de Histórico GERAL de Erros."""
         if self.log_window is None:
-            self.log_window = ErrorLogWindow(parent=self) 
+            # Carrega erros do BD
+            errors_from_db = []
+            if self.db_manager:
+                try:
+                    errors_from_db = self.db_manager.read_error_logs()
+                    # Convert ErrorLog objects to dicts expected by ErrorLogWindow
+                    errors_from_db = [
+                        {
+                            'id': e.id,
+                            'termo_busca': e.search_term,
+                            'titulo': e.article_title,
+                            'autores': '',
+                            'doi': e.article_doi,
+                            'data_log': QDate(e.error_date.year, e.error_date.month, e.error_date.day) if e.error_date else QDate.currentDate(),
+                            'publicacao_ano': '',
+                            'publicacao_plataforma': e.platform or '',
+                            'link': '',
+                            'resumo': e.error_reason,
+                            'tipo_erro': e.error_type
+                        } for e in errors_from_db
+                    ]
+                    print(f"[OK] {len(errors_from_db)} erros carregados do BD")
+                except Exception as e:
+                    print(f"[AVISO] Erro ao carregar erros do BD: {e}")
+            
+            self.log_window = ErrorLogWindow(parent=self, errors=errors_from_db if errors_from_db else None)
             self.log_window.setWindowTitle("Nexus - Histórico de Erros de Execução")
             self.log_window.title_label.setText('Histórico de Erros e Falhas')
             self.log_window.destroyed.connect(self._reset_log_window)
@@ -437,6 +605,16 @@ class SearchWindow(QMainWindow):
     def _reset_log_window(self):
         """Reseta a referência da janela de log quando ela é fechada."""
         self.log_window = None
+    
+    def closeEvent(self, event):
+        """Fecha a conexão com o BD quando a janela é fechada."""
+        if self.db_manager:
+            try:
+                self.db_manager.close()
+                print("[OK] Conexão com BD fechada")
+            except Exception as e:
+                print(f"[AVISO] Erro ao fechar BD: {e}")
+        event.accept()
 
     # --- NOVO MÉTODO DELEGADO: Conecta Histórico a Resultados ---
     def open_results_for_history(self, articles):
@@ -456,7 +634,66 @@ class SearchWindow(QMainWindow):
                 self.config_window.add_search_term_external(cleaned_term) 
                 
     def mark_article_valid_from_log(self, article_data):
-        print(f"✅ Artigo ID {article_data['id']} ('{article_data['titulo']}') marcado como válido e movido.")
+        """
+        Marca um artigo do log como VALIDADO — insere ou atualiza o artigo na tabela `articles`.
+
+        Espera-se que `article_data` contenha chaves como: 'titulo', 'autores', 'doi',
+        'publicacao_plataforma', 'link', 'resumo'. Esse método tenta localizar um registro
+        existente por (platform, doi) ou (platform, url) e atualiza o status para VALIDADO;
+        caso não encontre, insere um novo artigo com status VALIDADO.
+        """
+        if not self.db_manager:
+            print("[AVISO] DatabaseManager não disponível — não foi possível marcar artigo como válido.")
+            QMessageBox.warning(self, "Aviso", "Conexão com o banco não disponível.")
+            return
+
+        # Extrair campos com normalização básica
+        title = article_data.get('titulo') or article_data.get('title') or 'N/A'
+        authors = article_data.get('autores') or article_data.get('authors') or ''
+        doi_raw = article_data.get('doi') or ''
+        doi = doi_raw if doi_raw and doi_raw.strip().upper() != 'N/A' else ''
+        platform = article_data.get('publicacao_plataforma') or article_data.get('publicacao') or 'Desconhecido'
+        url = article_data.get('link') or ''
+        abstract = article_data.get('resumo') or article_data.get('abstract') or ''
+
+        try:
+            existing = None
+            if doi:
+                existing = self.db_manager.read_article_by_platform_and_doi(platform, doi)
+            if not existing and url:
+                existing = self.db_manager.read_article_by_platform_and_url(platform, url)
+
+            if existing:
+                # Atualiza status
+                updated = self.db_manager.update_article_status(existing.id, 'VALIDADO')
+                if updated:
+                    QMessageBox.information(self, "Sucesso", f"Artigo atualizado como VALIDADO (ID {existing.id}).")
+                    print(f"[OK] Artigo existente (ID {existing.id}) marcado como VALIDADO")
+                else:
+                    QMessageBox.warning(self, "Aviso", "Falha ao atualizar status do artigo.")
+                    print(f"[AVISO] Falha ao atualizar status do artigo existente (ID {existing.id})")
+            else:
+                # Inserir novo artigo com status VALIDADO
+                from database.models import Article as ArticleModel
+                art_obj = ArticleModel(
+                    title=title,
+                    authors=authors,
+                    doi=doi,
+                    platform=platform,
+                    abstract=abstract,
+                    url=url,
+                    status='VALIDADO'
+                )
+                new_id = self.db_manager.create_article(art_obj)
+                if new_id:
+                    QMessageBox.information(self, "Sucesso", f"Artigo inserido e marcado como VALIDADO (ID {new_id}).")
+                    print(f"[OK] Novo artigo inserido com ID {new_id} e status VALIDADO")
+                else:
+                    QMessageBox.warning(self, "Aviso", "Falha ao inserir o artigo como VALIDADO.")
+                    print("[AVISO] Falha ao inserir novo artigo como VALIDADO")
+        except Exception as e:
+            print(f"[ERRO] Ao marcar artigo como válido: {e}")
+            QMessageBox.critical(self, "Erro", f"Erro ao processar a ação: {e}")
 
 # Bloco de execução principal para teste (se este for seu arquivo main_window.py)
 if __name__ == "__main__":

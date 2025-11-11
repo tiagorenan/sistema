@@ -1,4 +1,12 @@
-GUIA DE CONFIGURAÇÃO DO AMBIENTE DE DESENVOLVIMENTO
+# 🚀 NEXUS Pesquisa - HC-UFPE
+
+Aplicação para coleta automatizada de artigos científicos com afiliação HC-UFPE.
+
+**📚 [Documentação Completa →](docs/README.md)**
+
+---
+
+## GUIA DE CONFIGURAÇÃO DO AMBIENTE DE DESENVOLVIMENTO
 
 Este guia explica os passos necessários para configurar o ambiente de desenvolvimento local, garantindo que todos os membros da equipe usem as mesmas dependências. O projeto utiliza um ambiente virtual Python (venv).
 

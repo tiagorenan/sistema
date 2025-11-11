@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QCursor, QColor
 from PySide6.QtCore import Qt, Signal, QDate, QRect
 import time 
+from database.db_manager import DatabaseManager
 
 # --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
@@ -243,7 +244,39 @@ class ErrorLogWindow(QMainWindow):
         self.setWindowTitle('Nexus - Histórico de Erros de Execução')
         self.setGeometry(100, 100, 950, 700) 
         
-        self.all_error_data = errors if errors is not None else SIMULATED_FULL_ERRORS
+        # --- INTEGRAÇÃO COM BANCO DE DADOS ---
+        try:
+            self.db_manager = DatabaseManager()
+        except Exception as e:
+            print(f"[AVISO] Erro ao inicializar DatabaseManager (ErrorLogWindow): {e}")
+            self.db_manager = None
+
+        if errors is not None:
+            self.all_error_data = errors
+        elif self.db_manager:
+            try:
+                db_errors = self.db_manager.read_error_logs(limit=200)
+                # converter para o formato esperado pelo UI
+                self.all_error_data = [
+                    {
+                        'id': e.id,
+                        'termo_busca': e.search_term,
+                        'titulo': e.article_title,
+                        'autores': '',
+                        'doi': e.article_doi,
+                        'data_log': QDate(e.error_date.year, e.error_date.month, e.error_date.day) if e.error_date else QDate.currentDate(),
+                        'publicacao_ano': '',
+                        'publicacao_plataforma': e.platform or '',
+                        'link': '',
+                        'resumo': e.error_reason,
+                        'tipo_erro': e.error_type
+                    } for e in db_errors
+                ]
+            except Exception as ex:
+                print(f"[AVISO] Erro ao carregar erros do BD: {ex}")
+                self.all_error_data = SIMULATED_FULL_ERRORS
+        else:
+            self.all_error_data = SIMULATED_FULL_ERRORS
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)

@@ -1,13 +1,16 @@
 import sys
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, 
+    QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, QMessageBox,
     QScrollArea, QSpacerItem, QSizePolicy, QButtonGroup
 )
 from PySide6.QtGui import QFont, QCursor
 from PySide6.QtCore import Qt, Signal, QRect, QDate # ADICIONADO QDate
 
 # Importações de outras janelas e dados simulados (Assumindo que estão definidos ou importados em main_window)
+from database.db_manager import DatabaseManager
+from database.models import Article
+
 SIMULATED_VALIDATED_ARTICLES = [
     {
         "id": 1,
@@ -200,6 +203,17 @@ class ResultsWindow(QMainWindow):
         self.current_search_errors = SIMULATED_SEARCH_ERRORS # Simulação de erros desta consulta
         self.current_log_window = None 
         
+        # --- INTEGRAÇÃO COM BANCO DE DADOS ---
+        try:
+            self.db_manager = DatabaseManager()
+            print("[OK] DatabaseManager inicializado na ResultsWindow")
+        except Exception as e:
+            print(f"[AVISO] Erro ao inicializar DatabaseManager: {e}")
+            self.db_manager = None
+
+        # ID da busca que originou estes resultados (vem da SearchWindow)
+        self.current_search_id = parent.current_search_id if parent and hasattr(parent, 'current_search_id') else None
+        
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
@@ -342,6 +356,7 @@ class ResultsWindow(QMainWindow):
         
         btn_add = QPushButton('ADICIONAR À BASE DE DADOS')
         btn_add.setStyleSheet(style)
+        btn_add.clicked.connect(self.save_articles_to_database)
         footer_hbox.addWidget(btn_add)
         
         btn_error = QPushButton(f'Registro de Erros ({len(self.current_search_errors)})')
@@ -380,3 +395,75 @@ class ResultsWindow(QMainWindow):
         self.close()
         if self.parent_window:
             self.parent_window.show()
+
+    def save_articles_to_database(self):
+        """Salva os artigos validados na tabela 'articles' do BD."""
+        if not self.db_manager:
+            QMessageBox.warning(self, "Erro", "Conexão com banco de dados não disponível.")
+            print("[AVISO] DatabaseManager não disponível")
+            return
+
+        if not self.articles:
+            QMessageBox.information(self, "Aviso", "Nenhum artigo para salvar.")
+            return
+
+        try:
+            saved_count = 0
+            skipped_count = 0
+            for article in self.articles:
+                # Extrair platform e doi
+                platform = article.get("publicacao", "").split("(")[-1].rstrip(")") if "(" in article.get("publicacao", "") else "Desconhecido"
+                doi = article.get("doi", "") or ""
+
+                # Verificação de duplicata:
+                # 1) se houver DOI, checar por (platform, doi)
+                # 2) caso contrário, se houver URL, checar por (platform, url)
+                existing = None
+                try:
+                    if doi:
+                        existing = self.db_manager.read_article_by_platform_and_doi(platform, doi)
+                    else:
+                        url = article.get("link", "") or ""
+                        # normalizar url básica: remover trailing spaces e barras duplicadas
+                        url = url.strip()
+                        if url:
+                            existing = self.db_manager.read_article_by_platform_and_url(platform, url)
+                except Exception as e:
+                    print(f"[AVISO] Erro ao checar duplicatas: {e}")
+
+                if existing:
+                    skipped_count += 1
+                    key = doi if doi else (article.get('link','') or 'N/A')
+                    print(f"[AVISO] Artigo ({key}) já existe na plataforma {platform} (ID {existing.id}) — pulando inserção")
+                    continue
+
+                art_obj = Article(
+                    title=article.get("titulo", "N/A"),
+                    authors=article.get("autores", "N/A"),
+                    doi=doi,
+                    platform=platform,
+                    abstract=article.get("resumo", "N/A"),
+                    url=article.get("link", "N/A"),
+                    status=article.get("status", "NOVO")
+                )
+                article_id = self.db_manager.create_article(art_obj)
+                if article_id:
+                    saved_count += 1
+                    print(f"[OK] Artigo '{article.get('titulo')[:50]}...' salvo com ID {article_id}")
+
+            # Mensagens para o usuário
+            QMessageBox.information(self, "Sucesso", f"{saved_count} artigo(s) salvo(s). {skipped_count} duplicata(s) ignorada(s).")
+            print(f"[OK] {saved_count} artigos salvos no BD; {skipped_count} duplicatas ignoradas")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao salvar artigos: {str(e)}")
+            print(f"[AVISO] Erro ao salvar artigos no BD: {e}")
+
+    def closeEvent(self, event):
+        """Fecha a conexão com o BD quando a janela é fechada."""
+        if self.db_manager:
+            try:
+                self.db_manager.close()
+                print("[OK] Conexão com BD fechada (ResultsWindow)")
+            except Exception as e:
+                print(f"[AVISO] Erro ao fechar BD (ResultsWindow): {e}")
+        event.accept()

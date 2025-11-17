@@ -1,63 +1,26 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy, QSpacerItem,
-    QGridLayout, QLineEdit, QDateEdit
+    QGridLayout, QLineEdit, QDateEdit, QMessageBox
 )
-from PySide6.QtGui import QFont, QCursor
+from PySide6.QtGui import QFont, QCursor, QPixmap
 from PySide6.QtCore import Qt, Signal, QDate, QRect
 import sys 
+from datetime import datetime # ESSENCIAL: Para parsear o formato de data do DB
 
-# Adicionamos a importação da nova janela (necessária para a função open_articles_for_history)
+# Adicionamos a importação da nova janela
 from Interface.historico_artigos_window import HistoricoArtigosWindow 
-
-# --- Definições de Cores ---
 from database.db_manager import DatabaseManager
+from database.models import Article # Necessário para tipagem ou referência
 
 # --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
 CINZA_FUNDO = "#f7f7f7"
 BRANCO_PADRAO = "white"
 
-# --- Dados Simulados de Artigos (Simplificado para o Histórico) ---
-SIMULATED_ARTICLES_FOR_HISTORY = [
-    {"id": 1, "titulo": "Artigo A - Polifarmácia (2023)", "autores": "Silva et al.", "doi": "123", "publicacao": "PubMed", "link": "#", "resumo": "Resumo Polifarmácia 1"},
-    {"id": 2, "titulo": "Artigo B - Polifarmácia (2024)", "autores": "Santos et al.", "doi": "456", "publicacao": "Scielo", "link": "#", "resumo": "Resumo Polifarmácia 2"},
-    {"id": 3, "titulo": "Artigo C - Sepse (2020)", "autores": "Costa et al.", "doi": "789", "publicacao": "Lilacs", "link": "#", "resumo": "Resumo Sepse 1"},
-]
-
-# --- Dados Simulados de Histórico de Consultas (Com QDate para o filtro) ---
-SIMULATED_HISTORY_ENTRIES = [
-    {
-        "id": 1,
-        "termo": "Polifarmácia HC-UFPE",
-        "data_pesquisa": QDate(2025, 10, 1),
-        "plataformas": "PubMed, Scielo",
-        "artigos_encontrados": 25, 
-        "periodo": "01/01/2023 - 31/12/2024",
-        "resumo_resultado": "Busca focada em afiliações do HC-UFPE e termos de polifarmácia. Encontrados 25 artigos validados, com predominância em PubMed.",
-        "articles": [SIMULATED_ARTICLES_FOR_HISTORY[0], SIMULATED_ARTICLES_FOR_HISTORY[1]]
-    },
-    {
-        "id": 2,
-        "termo": "\"Sepse Neonatal\" AND NE",
-        "data_pesquisa": QDate(2025, 9, 15),
-        "plataformas": "Lilacs, Scielo",
-        "artigos_encontrados": 12,
-        "periodo": "01/01/2020 - 2025-09-15",
-        "resumo_resultado": "Busca sobre sepse neonatal com foco na região Nordeste. Encontrados 12 artigos de alta relevância.",
-        "articles": [SIMULATED_ARTICLES_FOR_HISTORY[2]]
-    },
-    {
-        "id": 3,
-        "termo": "Telemedicina AND 'Reinternação'",
-        "data_pesquisa": QDate(2024, 11, 3),
-        "plataformas": "Capes Periódicos",
-        "artigos_encontrados": 5,
-        "periodo": "01/01/2024 - 2025-08-20",
-        "resumo_resultado": "Busca recente sobre o impacto de programas de telemedicina em reinternações. Pequeno volume, mas alta relevância.",
-        "articles": []
-    }
-]
+# ====================================================================
+# DADOS SIMULADOS REMOVIDOS PARA USO APENAS DO BANCO DE DADOS
+# ====================================================================
 
 # --- Widget Customizado para o Item de Histórico Expansível ---
 
@@ -66,11 +29,10 @@ class HistoryListItem(QFrame):
     
     item_clicked = Signal(int)
 
-    # ⚠️ CORREÇÃO: Recebe a instância da HistoryWindow diretamente para a delegação
     def __init__(self, entry_data, history_window_instance, parent=None): 
         super().__init__(parent)
         self.entry_data = entry_data
-        self.history_window = history_window_instance # ARMAZENA A REFERÊNCIA
+        self.history_window = history_window_instance 
         self.is_expanded = False
         self.entry_id = entry_data["id"]
         
@@ -95,38 +57,44 @@ class HistoryListItem(QFrame):
         label.setWordWrap(word_wrap)
         return label
         
+    # Dentro da classe HistoryListItem
+
     def _setup_header_row(self):
         """Cria a linha que mostra o Termo de Busca, Data e o número de artigos (Layout Estável)."""
         header_widget = QWidget()
         header_hbox = QHBoxLayout(header_widget)
         header_hbox.setContentsMargins(10, 8, 10, 8)
         
-        # Termo de Busca (Título Principal)
+        # 1. Termo de Busca (Título Principal) - Ganha mais espaço
         title_label = QLabel(f'<b>Consulta:</b> {self.entry_data.get("termo", "N/A")}')
         title_label.setCursor(QCursor(Qt.PointingHandCursor))
         title_label.setFont(QFont("Arial", 10))
         title_label.setWordWrap(True)
-        header_hbox.addWidget(title_label, 1) # Stretch=1
+        header_hbox.addWidget(title_label, 1) # Prioridade 1 para absorver o espaço
         
-        # Data da Pesquisa (Largura Fixa)
-        date_str = self.entry_data.get("data_pesquisa").toString('yyyy-MM-dd') if isinstance(self.entry_data.get("data_pesquisa"), QDate) else self.entry_data.get("data_pesquisa", "N/A")
+        # 2. Data da Pesquisa (Largura Fixa - 120px)
+        date_q = self.entry_data.get("data_pesquisa")
+        date_str = date_q.toString('yyyy-MM-dd') if isinstance(date_q, QDate) else self.entry_data.get("data_pesquisa", "N/A")
         date_label = self._create_label(f'Data: {date_str}')
         date_label.setFixedWidth(120)
         header_hbox.addWidget(date_label)
         
-        # Qtd de Artigos (Largura Fixa)
+        # 3. Qtd de Artigos (Largura AJUSTÁVEL ao Conteúdo - MANTENHA A LINHA REMOVIDA)
         count_label = self._create_label(f'Artigos: <b>{self.entry_data.get("artigos_encontrados", 0)}</b>')
-        count_label.setFixedWidth(60)
+        # count_label.setFixedWidth(80) # <--- LINHA REMOVIDA para permitir ajuste automático
+        
+        # Define uma dica de tamanho mínimo (Se necessário, para evitar colapso total)
+        count_label.setMinimumWidth(70) 
         header_hbox.addWidget(count_label)
         
-        # Ícone de Expansão
+        # 4. Ícone de Expansão
         self.expand_icon = QLabel("▼")
         self.expand_icon.setFixedWidth(20)
         header_hbox.addWidget(self.expand_icon)
         
         self.main_layout.addWidget(header_widget)
         self.header_widget = header_widget
-
+        
     def _setup_detail_content(self):
         """Cria o widget com os detalhes (Tabela de Parâmetros, Resumo e Botão de Ação)."""
         self.detail_widget = QFrame()
@@ -167,7 +135,7 @@ class HistoryListItem(QFrame):
         resumo_vbox.setSpacing(5)
         resumo_vbox.addWidget(self._create_label("Resumo da Consulta:", bold=True, font_size=10)) 
         
-        resumo_text = self._create_label(self.entry_data.get("resumo_resultado", "Resumo não disponível."), word_wrap=True)
+        resumo_text = self._create_label(self.entry_data.get("resumo_resultado", "Busca salva no DB, clique em VISUALIZAR ARTIGOS."), word_wrap=True)
         resumo_vbox.addWidget(resumo_text)
         
         detail_layout.addLayout(resumo_vbox)
@@ -180,7 +148,6 @@ class HistoryListItem(QFrame):
         style = f"background-color: {AZUL_NEXUS}; color: {BRANCO_PADRAO}; padding: 8px 15px; font-weight: bold; border-radius: 4px;"
         btn_view_articles.setStyleSheet(style)
         
-        # Conexão: Chama o método que delega a abertura da nova janela (HistoryWindow)
         btn_view_articles.clicked.connect(self._view_articles)
         
         action_hbox.addWidget(btn_view_articles)
@@ -189,17 +156,34 @@ class HistoryListItem(QFrame):
         self.main_layout.addWidget(self.detail_widget)
 
     def _view_articles(self):
-        """Notifica a HistoryWindow para abrir a tela de artigos específicos."""
-        # Chama diretamente o método na instância da HistoryWindow (armazenada em self.history_window)
-        if self.history_window:
-            self.history_window.open_articles_for_history(
-                self.entry_data.get('articles', []), 
-                self.entry_data.get('termo', 'Consulta Histórica')
-            )
+        """Notifica a HistoryWindow para abrir a tela de artigos específicos, carregando do DB."""
+        
+        db_manager = self.history_window.db_manager
+        
+        if db_manager and hasattr(db_manager, 'read_articles_for_search'):
+            search_id = self.entry_data.get('id') 
+            query_term = self.entry_data.get('termo', 'Consulta Histórica')
+            
+            try:
+                # 1. Carregar artigos reais do DB
+                articles = db_manager.read_articles_for_search(search_id)
+                
+                # 2. Abrir a nova janela
+                self.history_window.open_articles_for_history(
+                    articles or [], 
+                    query_term
+                )
+            except Exception as e:
+                QMessageBox.critical(self.history_window, "Erro de Carga", f"Falha ao carregar artigos do histórico: {e}")
+                print(f"[ERRO] Falha ao carregar artigos do histórico (ID {search_id}): {e}")
+        else:
+            QMessageBox.critical(self.history_window, "Erro Crítico", "O DatabaseManager não está pronto ou o método read_articles_for_search está faltando.")
+
 
     # --- Lógica de Expansão (Padrão) ---
     def mousePressEvent(self, event):
         if self.header_widget.geometry().contains(event.pos()):
+            self.item_clicked.emit(self.entry_id) 
             self._toggle_expansion()
         else:
             super().mousePressEvent(event)
@@ -234,20 +218,20 @@ class HistoryWindow(QMainWindow):
             print(f"[AVISO] Erro ao inicializar DatabaseManager: {e}")
             self.db_manager = None
 
-        # Carregar histórico do BD se disponível, senão usar dados simulados
-        if self.db_manager and history_entries is None:
+        # Carregar histórico do BD 
+        if self.db_manager:
             try:
-                # Implement _load_history_from_database para retornar dados no formato esperado
                 self.all_history_data = self._load_history_from_database()
-                if self.all_history_data:
-                    print(f"[OK] {len(self.all_history_data)} históricos carregados do BD")
+                if not self.all_history_data:
+                    self.all_history_data = [] 
+                    print("[AVISO] Nenhuma consulta de histórico carregada do BD.")
                 else:
-                    self.all_history_data = SIMULATED_HISTORY_ENTRIES
+                     print(f"[OK] {len(self.all_history_data)} históricos carregados do BD")
             except Exception as e:
-                print(f"[AVISO] Erro ao carregar histórico do BD: {e}")
-                self.all_history_data = SIMULATED_HISTORY_ENTRIES
+                print(f"[ERRO] Falha ao carregar histórico do BD: {e}. Usando lista vazia.")
+                self.all_history_data = [] 
         else:
-            self.all_history_data = history_entries if history_entries is not None else SIMULATED_HISTORY_ENTRIES
+            self.all_history_data = [] 
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -273,7 +257,19 @@ class HistoryWindow(QMainWindow):
         self.title_label.setAlignment(Qt.AlignCenter)
         header_hbox.addWidget(self.title_label, 1) 
         
-        header_hbox.addItem(QSpacerItem(30, 30, QSizePolicy.Fixed, QSizePolicy.Fixed)) 
+        # --- Logo HC-UFPE no Header ---
+        hc_logo_label = QLabel()
+        try:
+            # Assumimos que o parent (SearchWindow) tem a função resource_path
+            hc_logo_pixmap = QPixmap(self.parent_search_window.resource_path("Interface/imagens/hc_logo.png")) 
+            if not hc_logo_pixmap.isNull():
+                scaled_hc_pixmap = hc_logo_pixmap.scaled(60, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                hc_logo_label.setPixmap(scaled_hc_pixmap)
+                header_hbox.addWidget(hc_logo_label, alignment=Qt.AlignRight) 
+        except Exception:
+            pass 
+
+        header_hbox.addItem(QSpacerItem(10, 30, QSizePolicy.Fixed, QSizePolicy.Fixed)) 
 
         self.main_layout.addLayout(header_hbox)
         separator = QFrame()
@@ -293,7 +289,8 @@ class HistoryWindow(QMainWindow):
         self.date_start_input = QDateEdit(self)
         self.date_start_input.setDisplayFormat("dd/MM/yyyy")
         self.date_start_input.setCalendarPopup(True)
-        self.date_start_input.setDate(QDate.currentDate().addYears(-1))
+        # Define a data inicial para 01/01/2000 para ser mais abrangente
+        self.date_start_input.setDate(QDate(2000, 1, 1)) 
         self.date_start_input.dateChanged.connect(self.filter_history_list)
         filter_layout.addWidget(self.date_start_input)
 
@@ -340,7 +337,6 @@ class HistoryWindow(QMainWindow):
             self.history_vbox.addWidget(no_entries_label)
         else:
             for entry in sorted(data_to_display, key=lambda x: x['data_pesquisa'], reverse=True):
-                # ⚠️ CORREÇÃO CRÍTICA: Passa 'self' (a instância da HistoryWindow) para o item.
                 item = HistoryListItem(entry, history_window_instance=self, parent=self)
                 self.history_vbox.addWidget(item)
 
@@ -355,27 +351,41 @@ class HistoryWindow(QMainWindow):
             searches = self.db_manager.read_search_history(limit=200)
             ui_entries = []
             for s in searches:
-                # s is SearchHistory dataclass; convert fields
-                date_q = None
+                date_q = QDate.currentDate() # Default em caso de falha de parse
+                
+                # --- BLOCO DE PARSE SEGURO CORRIGIDO ---
                 try:
-                    if s.search_date:
-                        date_q = QDate(s.search_date.year, s.search_date.month, s.search_date.day)
-                except Exception:
-                    date_q = QDate.currentDate()
+                    search_date_value = s.search_date
+                    if search_date_value:
+                        if isinstance(search_date_value, str):
+                            # Tenta parsear o formato DD/MM/YYYY
+                            dt_obj = datetime.strptime(search_date_value, '%d/%m/%Y')
+                            date_q = QDate(dt_obj.year, dt_obj.month, dt_obj.day)
+                        else:
+                            # Assume objeto datetime
+                            date_q = QDate(search_date_value.year, search_date_value.month, search_date_value.day)
+                except Exception as e:
+                    print(f"[AVISO] Falha ao parsear data '{s.search_date}' ({e}). Usando data atual.")
+                    # Continua o loop usando a data atual, mas não quebra a função
+                # --- FIM DO PARSE SEGURO ---
 
                 ui_entries.append({
                     'id': s.id,
                     'termo': s.search_term,
-                    'data_pesquisa': date_q or QDate.currentDate(),
+                    'data_pesquisa': date_q,
                     'plataformas': s.platforms,
-                    'artigos_encontrados': s.results_count,
+                    
+                    # CORREÇÃO CRÍTICA AQUI: LENDO O RESULTS_COUNT CORRETO DO DB
+                    'artigos_encontrados': s.results_count if s.results_count is not None else 0,
+                    
                     'periodo': f"{s.date_start or ''} - {s.date_end or ''}",
                     'resumo_resultado': f"Busca salva no BD: {s.search_term}",
-                    'articles': []
+                    'search_id': s.id 
                 })
             return ui_entries
         except Exception as e:
-            print(f"[AVISO] Erro ao ler histórico do BD: {e}")
+            # Captura o erro fatal se for uma falha de comunicação com o DB ou estrutura
+            print(f"[ERRO FATAL NO DB] Falha ao carregar searches (Verifique o db_manager!): {e}")
             return []
 
     def filter_history_list(self):
@@ -416,7 +426,6 @@ class HistoryWindow(QMainWindow):
         """Reseta a referência quando a janela de artigos é fechada."""
         self.artigos_window = None
 
-    # --- Métodos de Funcionalidade ---
     def return_to_parent(self):
         """Fecha esta janela e exibe a janela SearchWindow (Parent)."""
         self.close()

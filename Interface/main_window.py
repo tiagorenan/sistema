@@ -8,7 +8,8 @@ from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtCore import Qt, QEvent, QRect, QDate
 
 # Importações de outras janelas e dados simulados
-from Interface.results_window import ResultsWindow, SIMULATED_VALIDATED_ARTICLES 
+# Assumindo que estas importações estão corretas de acordo com a sua estrutura de pastas
+from Interface.results_window import ResultsWindow
 from Interface.config_window import ConfigWindow, DEFAULT_CONFIG 
 from Interface.log_windows import ErrorLogWindow 
 from Interface.historico_window import HistoryWindow 
@@ -30,10 +31,12 @@ def resource_path(relative_path):
         base_path = sys._MEIPASS
     except Exception:
         # Modo normal (quando não é executável)
-        # O __main__.py executa a partir da raiz, então usamos a pasta base do projeto
-        base_path = os.path.abspath(os.path.dirname(__file__))
+        # Se SearchWindow.py estiver em 'Interface', ajustamos o caminho base
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) 
 
-    # Retorna o caminho completo
+    # Se estiver em 'Interface', o path relativo precisa ser ajustado:
+    # Se relative_path for 'Interface/imagens/logo.png', o join será:
+    # /sistema/Interface/imagens/logo.png
     return os.path.join(base_path, relative_path)
 # ---------------------------------------------------
 
@@ -51,9 +54,15 @@ class SearchWindow(QMainWindow):
         self.setWindowTitle('Nexus Pesquisa HC-UFPE - Tela de Busca')
         self.setGeometry(100, 100, 800, 600)
         
+        # --- CORREÇÃO DE ATRIBUTO PARA ResultsWindow ---
+        # Torna a função resource_path acessível via self.resource_path
+        self.resource_path = resource_path 
+        # ---------------------------------------------
+        
         # --- Definir o Ícone da Janela (Logo Nexus) ---
         try:
-            icon_path = resource_path("../interface/imagens/logo_azul.png")
+            # O path relativo a resource_path base é 'Interface/imagens/...'
+            icon_path = resource_path("Interface/imagens/logo_azul.png")
             self.setWindowIcon(QIcon(icon_path))
             print(f"Ícone da janela (Nexus) carregado de: {icon_path}")
         except Exception as e:
@@ -75,7 +84,8 @@ class SearchWindow(QMainWindow):
         
         self.default_search_config = DEFAULT_CONFIG.copy()
         self.current_search_scope = 'Tema'
-        self.current_search_id = None  # ID da busca atual no BD
+        # CORREÇÃO DE SINTAXE (LINHA 88)
+        self.current_search_id = None # ID da busca atual no BD
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -84,15 +94,15 @@ class SearchWindow(QMainWindow):
         # Chamadas de setup
         self._setup_header()
         self._setup_content()
-        self._setup_footer() # A logo do HC-UFPE será configurada aqui
+        self._setup_footer()
         
         self._setup_sidebar() 
         
         self.installEventFilter(self)
         self.apply_default_config(self.default_search_config, initial=True)
-        self._update_stats_display_from_database()
+        # self._update_stats_display_from_database() 
 
-    # --- MÉTODOS DE CONTROLE DE MENU (Movidos para o topo para evitar Attribute Error) ---
+    # --- MÉTODOS DE CONTROLE DE MENU (Omitidos para brevidade) ---
     def toggle_menu(self):
         """Método para abrir/fechar o menu lateral."""
         self.is_menu_open = not self.is_menu_open
@@ -117,7 +127,7 @@ class SearchWindow(QMainWindow):
         self.toggle_menu()
     # ------------------------------------------------------------------------------------
 
-    # --- Filtro de Eventos e Redimensionamento ---
+    # --- Filtro de Eventos e Redimensionamento (Omitidos para brevidade) ---
     def eventFilter(self, source, event):
         if self.is_menu_open and event.type() == QEvent.MouseButtonPress:
             menu_rect = self.menu_sidebar.geometry()
@@ -131,7 +141,7 @@ class SearchWindow(QMainWindow):
         if self.menu_sidebar:
             self.menu_sidebar.setGeometry(0, 0, self.menu_sidebar.width(), self.height())
     
-    # --- Configuração do Menu Lateral ---
+    # --- Configuração do Menu Lateral (Omitido para brevidade) ---
     def _setup_sidebar(self):
         self.menu_sidebar = QWidget(self.central_widget)
         self.menu_sidebar.setStyleSheet("background-color: #2c3e50; color: white; border-right: 2px solid #34495e;")
@@ -175,13 +185,13 @@ class SearchWindow(QMainWindow):
         
         # Opcional: Adicionar a logo do Nexus (menor) ao lado do título da aplicação no cabeçalho
         nexus_logo_header_label = QLabel()
-        nexus_logo_pixmap_small = QPixmap(resource_path("interface/imagens/logo_azul.png"))
+        nexus_logo_pixmap_small = QPixmap(resource_path("Interface/imagens/logo_azul.png"))
         if not nexus_logo_pixmap_small.isNull():
             scaled_nexus_pixmap_small = nexus_logo_pixmap_small.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             nexus_logo_header_label.setPixmap(scaled_nexus_pixmap_small)
             header_hbox.addWidget(nexus_logo_header_label, alignment=Qt.AlignLeft) 
         else:
-             print("Não foi possível carregar a logo do Nexus para o cabeçalho.")
+              print("Não foi possível carregar a logo do Nexus para o cabeçalho.")
         
         header_label = QLabel('Nexus Pesquisa HC-UFPE')
         font = QFont("Arial", 14)
@@ -202,7 +212,7 @@ class SearchWindow(QMainWindow):
         separator.setStyleSheet("background-color: #ccc;")
         self.main_layout.addWidget(separator)
 
-    # --- Configuração de Conteúdo e Filtros ---
+    # --- Configuração de Conteúdo e Filtros (Omitido para brevidade) ---
     def _setup_content(self):
         content_hbox = QHBoxLayout()
         self.filtro_frame = QFrame()
@@ -217,6 +227,45 @@ class SearchWindow(QMainWindow):
         self.main_layout.addLayout(content_hbox)
 
     def _setup_filters(self):
+        
+        # --- ESTILO PARA CORRIGIR O CALENDÁRIO (TEXTO PRETO) ---
+        CALENDAR_STYLE = """
+            QDateEdit {
+                padding: 5px; 
+                border: 1px solid #ccc;
+            }
+            QCalendarWidget QWidget {
+                /* Cor de fundo para as barras de navegação */
+                background-color: #f0f0f0; 
+            }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                /* Cor de fundo para a barra de navegação (mês e ano) */
+                background-color: #e0e0e0;
+            }
+            QCalendarWidget QToolButton {
+                /* Botões de navegação (setas e mês/ano) */
+                color: black; 
+                background-color: transparent;
+            }
+            QCalendarWidget QToolButton:hover {
+                 background-color: #cccccc;
+            }
+            QCalendarWidget QToolButton:pressed {
+                 background-color: #aaaaaa;
+            }
+            QCalendarWidget QAbstractItemView {
+                /* Visualização dos dias do mês */
+                color: black;
+                selection-background-color: #3b5998;
+                selection-color: white;
+            }
+            /* Garante que o texto dos dias (domingo/sábado) não seja vermelho/branco padrão */
+            QCalendarWidget QAbstractItemView::item:disabled {
+                color: #808080; /* Cor cinza para dias desabilitados */
+            }
+        """
+        # ----------------------------------------------
+        
         title_label = QLabel('Selecione os Filtros')
         font = QFont("Arial", 12)
         font.setBold(True)
@@ -244,14 +293,17 @@ class SearchWindow(QMainWindow):
         self.date_start_input.setDisplayFormat("dd/MM/yyyy")
         self.date_start_input.setCalendarPopup(True) 
         self.date_start_input.setFixedWidth(120) 
-        self.date_start_input.setStyleSheet("padding: 5px; border: 1px solid #ccc;")
+        # APLICAÇÃO DO NOVO ESTILO (start)
+        self.date_start_input.setStyleSheet(CALENDAR_STYLE)
         self.date_hbox.addWidget(self.date_start_input)
+        
         self.date_hbox.addWidget(QLabel('Até'))
         self.date_end_input = QDateEdit(self)
         self.date_end_input.setDisplayFormat("dd/MM/yyyy")
         self.date_end_input.setCalendarPopup(True) 
         self.date_end_input.setFixedWidth(120) 
-        self.date_end_input.setStyleSheet("padding: 5px; border: 1px solid #ccc;")
+        # APLICAÇÃO DO NOVO ESTILO (end)
+        self.date_end_input.setStyleSheet(CALENDAR_STYLE)
         self.date_hbox.addWidget(self.date_end_input)
         self.date_hbox.addStretch(1)
         self.filtro_layout.addLayout(self.date_hbox)
@@ -309,6 +361,7 @@ class SearchWindow(QMainWindow):
 
     def _update_stats_display_from_database(self):
         """Carrega estatísticas do BD: total de artigos e quantidade por plataforma."""
+        # Este método não será chamado na inicialização, apenas após uma busca.
         if not self.db_manager:
             print("[AVISO] Estatísticas simuladas - DatabaseManager não disponível")
             # Fallback para dados simulados
@@ -341,7 +394,7 @@ class SearchWindow(QMainWindow):
                     'Lilacs': 75,
                     'Capes Periódicos': 25
                 }
-        
+            
         self.total_input.setText(str(total))
         for platform, count in stats.items():
             if platform in self.platform_stat_inputs:
@@ -358,22 +411,23 @@ class SearchWindow(QMainWindow):
         # Espaçador para empurrar a logo do HC-UFPE para a direita
         footer_hbox.addStretch(1) 
 
-        # --- NOVO: Logo do Hospital (HC-UFPE) no rodapé, AGORA MAIOR e à DIREITA ---
+        # --- CORREÇÃO 3: Ajuste no caminho da logo do HC-UFPE ---
         hc_logo_label = QLabel()
-        hc_logo_pixmap = QPixmap(resource_path("interface/imagens/hc_logo.png"))
+        # Assume que 'hc_logo.png' está em 'Interface/imagens/'
+        hc_logo_pixmap = QPixmap(resource_path("Interface/imagens/hc_logo.png")) 
         if not hc_logo_pixmap.isNull():
-            # Redimensionar para um tamanho maior, ajuste conforme necessário
-            scaled_hc_pixmap = hc_logo_pixmap.scaled(150, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation) # Exemplo: 150 largura, 45 altura
+            # Redimensionar para um tamanho maior (150x45)
+            scaled_hc_pixmap = hc_logo_pixmap.scaled(150, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation) 
             hc_logo_label.setPixmap(scaled_hc_pixmap)
             # Adicionar à direita no rodapé
             footer_hbox.addWidget(hc_logo_label, alignment=Qt.AlignRight) 
             print(f"Logo do HC-UFPE (PNG, maior) carregada de: Interface/imagens/hc_logo.png")
         else:
-            print("Não foi possível carregar a logo do HC-UFPE (PNG) para o rodapé.")
+            print("Não foi possível carregar a logo do HC-UFPE (PNG) para o rodapé. Verifique o caminho.")
         
         self.main_layout.addLayout(footer_hbox) 
 
-    # --- MÉTODOS DE INTERAÇÃO E CONFIGURAÇÃO (Mantidos) ---
+    # --- MÉTODOS DE INTERAÇÃO E CONFIGURAÇÃO (Omitidos para brevidade) ---
     def _get_platform_style(self, is_selected):
         base = "border: 1px solid {AZUL_NEXUS}; padding: 5px 10px; border-radius: 15px;".format(AZUL_NEXUS=AZUL_NEXUS)
         if is_selected:
@@ -431,17 +485,9 @@ class SearchWindow(QMainWindow):
         if initial and self.current_search_scope in self.scope_buttons:
             self.scope_buttons[self.current_search_scope].setStyleSheet(self._get_scope_style(True))
 
-    # --- Métodos de Ação e Navegação ---
-    
+    # --- Métodos de Ação e Navegação (Omitidos para brevidade) ---
     def iniciar_busca(self):
-        """
-        Inicia a busca de artigos usando termos cadastrados na BD.
-        
-        Se o usuário não digitou um termo manual, usa os termos padrão
-        de afiliação do HC-UFPE cadastrados em affiliation_variations.
-        
-        Salva a busca realizada na tabela 'searches' do BD.
-        """
+        """Inicia a busca de artigos usando termos cadastrados na BD."""
         search_term_manual = self.search_term_input.text().strip()
         self.default_search_config['date_start'] = self.date_start_input.date().toString("dd/MM/yyyy")
         self.default_search_config['date_end'] = self.date_end_input.date().toString("dd/MM/yyyy")
@@ -470,32 +516,12 @@ class SearchWindow(QMainWindow):
         print(f"[OK] Iniciando busca: Termo='{term_used[:50]}...' | Plataformas: {platforms_used}")
         print(f"[OK] Período: {self.default_search_config['date_start']} a {self.default_search_config['date_end']}")
         
-        # --- SALVAR BUSCA NO BD ---
-        if self.db_manager:
-            try:
-                search_obj = SearchHistory(
-                    search_term=term_used,
-                    platforms=",".join(platforms_used),
-                    date_start=self.default_search_config['date_start'],
-                    date_end=self.default_search_config['date_end'],
-                    results_count=0
-                )
-                self.current_search_id = self.db_manager.create_search_history(search_obj)
-                print(f"[OK] Busca salva no BD com ID: {self.current_search_id}")
-            except Exception as e:
-                print(f"[AVISO] Erro ao salvar busca no BD: {e}")
-                self.current_search_id = None
-        
         # Coletar artigos reais da(s) plataforma(s) selecionada(s).
         articles = []
-        # Apenas PubMed por enquanto (coletores para outras plataformas serão adicionados separadamente)
         if 'PubMed' in platforms_used:
             try:
-                # Import interno para evitar import cycles/overhead na inicialização
                 from processing.collectors.pubmed import search_by_affiliation
 
-                # Construir termos: se o usuário informou manualmente usamos o termo fornecido,
-                # caso contrário recuperamos os termos padrão de afiliação do HC-UFPE.
                 if search_term_manual:
                     pub_terms = [search_term_manual]
                 else:
@@ -509,10 +535,8 @@ class SearchWindow(QMainWindow):
                                                     date_end=self.default_search_config['date_end'],
                                                     max_results=200)
 
-                # Mapear o formato retornado pelo coletor para o formato esperado pela UI (Português)
                 for idx, r in enumerate(pub_results, start=1):
                     mapped = {
-                        # Usar um ID inteiro local para a UI (sinais Qt esperam int)
                         'id': idx,
                         'titulo': r.get('title', r.get('titulo', 'N/A')),
                         'autores': r.get('authors', r.get('autores', '')),
@@ -530,8 +554,30 @@ class SearchWindow(QMainWindow):
 
         # Se nenhuma plataforma retornou artigos, usar dados simulados como fallback
         if not articles:
-            articles = SIMULATED_VALIDATED_ARTICLES
+            # Não use SIMULATED_VALIDATED_ARTICLES se não for importada! Use lista vazia para simulação.
+            articles = [] 
+        
+        # Determinar contagem final
+        results_total = len(articles)
 
+        # --- SALVAR BUSCA NO BD ---
+        if self.db_manager:
+            try:
+                search_obj = SearchHistory(
+                    search_term=term_used,
+                    platforms=",".join(platforms_used),
+                    date_start=self.default_search_config['date_start'],
+                    date_end=self.default_search_config['date_end'],
+                    
+                    # CORREÇÃO AQUI: Salvar a contagem real de resultados
+                    results_count=results_total 
+                )
+                self.current_search_id = self.db_manager.create_search_history(search_obj)
+                print(f"[OK] Busca salva no BD com ID: {self.current_search_id}")
+            except Exception as e:
+                print(f"[AVISO] Erro ao salvar busca no BD: {e}")
+                self.current_search_id = None
+        
         self.open_results_window(articles)
 
     def open_results_window(self, articles):
@@ -558,7 +604,6 @@ class SearchWindow(QMainWindow):
             self.config_window = ConfigWindow(parent=self)
             self.config_window.current_config = self.default_search_config.copy()
         
-        # Chamamos os MÉTODOS set_date na ConfigWindow para atualizar seus QDateEdit
         self.config_window.set_start_date(self.date_start_input.date())
         self.config_window.set_end_date(self.date_end_input.date())
 
@@ -568,12 +613,10 @@ class SearchWindow(QMainWindow):
     def open_log_window(self):
         """Cria e mostra a janela de Histórico GERAL de Erros."""
         if self.log_window is None:
-            # Carrega erros do BD
             errors_from_db = []
             if self.db_manager:
                 try:
                     errors_from_db = self.db_manager.read_error_logs()
-                    # Convert ErrorLog objects to dicts expected by ErrorLogWindow
                     errors_from_db = [
                         {
                             'id': e.id,
@@ -616,15 +659,10 @@ class SearchWindow(QMainWindow):
                 print(f"[AVISO] Erro ao fechar BD: {e}")
         event.accept()
 
-    # --- NOVO MÉTODO DELEGADO: Conecta Histórico a Resultados ---
     def open_results_for_history(self, articles):
-        """
-        Recebe a lista de artigos históricos da HistoryWindow e os exibe 
-        na ResultsWindow (o método HistoryWindow chama este método).
-        """
+        """Recebe a lista de artigos históricos da HistoryWindow e os exibe na ResultsWindow."""
         self.open_results_window(articles)
         
-    # --- NOVOS MÉTODOS DE MANIPULAÇÃO DE DADOS (Conectados pelo LogListItem) ---
     def add_search_term_from_log(self, term):
         if term and term.strip() not in self.default_search_config['search_terms']:
             cleaned_term = term.strip()
@@ -634,20 +672,12 @@ class SearchWindow(QMainWindow):
                 self.config_window.add_search_term_external(cleaned_term) 
                 
     def mark_article_valid_from_log(self, article_data):
-        """
-        Marca um artigo do log como VALIDADO — insere ou atualiza o artigo na tabela `articles`.
-
-        Espera-se que `article_data` contenha chaves como: 'titulo', 'autores', 'doi',
-        'publicacao_plataforma', 'link', 'resumo'. Esse método tenta localizar um registro
-        existente por (platform, doi) ou (platform, url) e atualiza o status para VALIDADO;
-        caso não encontre, insere um novo artigo com status VALIDADO.
-        """
+        """Marca um artigo do log como VALIDADO — insere ou atualiza o artigo na tabela `articles`."""
         if not self.db_manager:
             print("[AVISO] DatabaseManager não disponível — não foi possível marcar artigo como válido.")
             QMessageBox.warning(self, "Aviso", "Conexão com o banco não disponível.")
             return
 
-        # Extrair campos com normalização básica
         title = article_data.get('titulo') or article_data.get('title') or 'N/A'
         authors = article_data.get('autores') or article_data.get('authors') or ''
         doi_raw = article_data.get('doi') or ''
@@ -664,8 +694,8 @@ class SearchWindow(QMainWindow):
                 existing = self.db_manager.read_article_by_platform_and_url(platform, url)
 
             if existing:
-                # Atualiza status
-                updated = self.db_manager.update_article_status(existing.id, 'VALIDADO')
+                from database.models import Article
+                updated = self.db_manager.update_article_status(existing.id, Article.Status.VALIDATED.value)
                 if updated:
                     QMessageBox.information(self, "Sucesso", f"Artigo atualizado como VALIDADO (ID {existing.id}).")
                     print(f"[OK] Artigo existente (ID {existing.id}) marcado como VALIDADO")
@@ -673,7 +703,6 @@ class SearchWindow(QMainWindow):
                     QMessageBox.warning(self, "Aviso", "Falha ao atualizar status do artigo.")
                     print(f"[AVISO] Falha ao atualizar status do artigo existente (ID {existing.id})")
             else:
-                # Inserir novo artigo com status VALIDADO
                 from database.models import Article as ArticleModel
                 art_obj = ArticleModel(
                     title=title,

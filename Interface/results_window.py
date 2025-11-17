@@ -1,74 +1,26 @@
 import sys
+import os
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, QMessageBox,
     QScrollArea, QSpacerItem, QSizePolicy, QButtonGroup
 )
-from PySide6.QtGui import QFont, QCursor
-from PySide6.QtCore import Qt, Signal, QRect, QDate # ADICIONADO QDate
+from PySide6.QtGui import QFont, QCursor, QPixmap
+from PySide6.QtCore import Qt, Signal, QRect, QDate
 
-# Importações de outras janelas e dados simulados (Assumindo que estão definidos ou importados em main_window)
+# Importações de outras janelas e dados simulados
 from database.db_manager import DatabaseManager
 from database.models import Article
 
-SIMULATED_VALIDATED_ARTICLES = [
-    {
-        "id": 1,
-        "titulo": "Clinical and laboratory profiles with suspected dengue, chikungunya and Zika virus infections",
-        "autores": "Marinho, P. E. M., Gantois, I. N., de Souza, W. C. R., et al.",
-        "doi": "10.1177/03000605211048865",
-        "publicacao": "2022-01 (PubMed)",
-        "link": "https://pubmed.ncbi.nlm.nih.gov/34719912/",
-        "resumo": "O estudo objetivou analisar o perfil de utilização de antimicrobianos em um hospital universitário em Recife, Pernambuco...",
-        "status": "VALIDADO" 
-    },
-    {
-        "id": 2,
-        "titulo": "Percepções e conhecimentos sobre o uso de medicamentos entre pacientes idosos",
-        "autores": "Silva, A. C., Santos, R. F., Medeiros, J. P.",
-        "doi": "10.1590/0104-1169.1111",
-        "publicacao": "2023-05 (Scielo)",
-        "link": "https://www.scielo.br/j/rsp/a/2023/v1/",
-        "resumo": "Este estudo qualitativo explorou as percepções e o nível de conhecimento de pacientes idosos sobre a polifarmácia e a adesão ao tratamento...",
-        "status": "VALIDADO" 
-    }
-]
-
-# CORRIGIDO: Adicionado 'data_log' para compatibilidade com ErrorLogWindow
-SIMULATED_SEARCH_ERRORS = [
-    {
-        "id": 201,
-        "termo_busca": "Polifarmácia idosos",
-        "titulo": "Artigo sobre Polifarmácia em Minas Gerais",
-        "autores": "Medeiros, J. P.",
-        "doi": "10.1590/0104-1169.2023.v1",
-        "data_log": QDate.currentDate(), # Erro mais recente
-        "publicacao_ano": "2024",
-        "publicacao_plataforma": "Scielo",
-        "link": "https://www.scielo.br/j/rsp/a/2023/v1/",
-        "resumo": "Artigo rejeitado por relevância geográfica. A pesquisa foi realizada em uma instituição fora da região Nordeste.",
-        "tipo_erro": "Rejeição de Conteúdo"
-    },
-    {
-        "id": 202,
-        "termo_busca": "Vacinação Covid",
-        "titulo": "Dados Históricos de Imunização (2018)",
-        "autores": "Costa, L.",
-        "doi": "N/A",
-        "data_log": QDate.currentDate().addDays(-1), # Erro um pouco mais antigo
-        "publicacao_ano": "2018",
-        "publicacao_plataforma": "Lilacs",
-        "link": "N/A",
-        "resumo": "O artigo trata de dados de 2018. O período de busca configurado não inclui artigos tão antigos.",
-        "tipo_erro": "Rejeição de Conteúdo"
-    }
-]
-
-# --- Definições de Cores ---
+# --- DEFINIÇÕES/CONSTANTES (Mantenha as suas aqui) ---
 AZUL_NEXUS = "#3b5998"
 CINZA_FUNDO = "#f7f7f7"
 BRANCO_PADRAO = "white"
 VERMELHO_ERRO = "#c53929" 
+
+# --- A FUNÇÃO resource_path FOI REMOVIDA DAQUI ---
+# A ResultsWindow deve confiar que o parent (SearchWindow) 
+# fornecerá o caminho correto via parent_window.resource_path.
 
 # --- Widget Customizado para a Linha de Artigo (Expansível) ---
 
@@ -189,8 +141,8 @@ class ArticleListItem(QFrame):
         self.detail_widget.setVisible(False)
         self.expand_icon.setText("▼")
         self.is_expanded = False
-        
-# --- Janela Principal de Resultados ---
+# --- FIM DO CÓDIGO DA CLASSE ArticleListItem ---
+
 
 class ResultsWindow(QMainWindow):
     def __init__(self, parent=None, articles=None):
@@ -199,8 +151,10 @@ class ResultsWindow(QMainWindow):
         self.setGeometry(100, 100, 1000, 750) 
         
         self.parent_window = parent 
-        self.articles = articles if articles is not None else SIMULATED_VALIDATED_ARTICLES
-        self.current_search_errors = SIMULATED_SEARCH_ERRORS # Simulação de erros desta consulta
+        
+        self.articles = articles if articles is not None else []
+        self.current_search_errors = [] 
+        
         self.current_log_window = None 
         
         # --- INTEGRAÇÃO COM BANCO DE DADOS ---
@@ -306,16 +260,15 @@ class ResultsWindow(QMainWindow):
                 existing_item.item_clicked.connect(item._handle_item_clicked)
             
             self.article_list_items.append(item)
-            self.results_vbox.addWidget(item)
-        
-        pagination_label = QLabel("<div align='center'><a href='#' style='color: #3b5998; font-weight: bold;'>1</a> <span style='color: gray;'>2 3 ...</span></div>")
-        self.results_vbox.addWidget(pagination_label, alignment=Qt.AlignCenter)
-        
+            self.results_vbox.addWidget(item) 
+            
         self.results_vbox.addStretch(1)
 
 
     def _setup_stats_panel(self, frame):
-        """Configura o painel de estatísticas."""
+        """
+        Configura o painel de estatísticas, calculando os valores reais.
+        """
         stats_layout = QGridLayout(frame)
         
         title_label = QLabel('Número de Artigos por Plataforma')
@@ -323,14 +276,35 @@ class ResultsWindow(QMainWindow):
         font.setBold(True)
         title_label.setFont(font)
         stats_layout.addWidget(title_label, 0, 0, 1, 2) 
-
-        stats_data = {
-            "Total:": len(self.articles),
-            "PubMed:": 2,
-            "Scielo:": 1,
-            "Lilacs:": 0,
-            "Capes Periódicos:": 0
+        
+        # --- Cálculo dinâmico das estatísticas ---
+        platform_counts = {
+            "PubMed": 0,
+            "Scielo": 0,
+            "Lilacs": 0,
+            "Capes Periódicos": 0
         }
+        total_articles = len(self.articles)
+        
+        for article in self.articles:
+            # Extrai o nome da plataforma da string de publicação (ex: "2023-05 (Scielo)" -> "Scielo")
+            publicacao = article.get("publicacao", "")
+            if "(" in publicacao and ")" in publicacao:
+                platform_name = publicacao.split("(")[-1].rstrip(")")
+                # A capitalização deve corresponder às chaves
+                if platform_name in platform_counts:
+                    platform_counts[platform_name] += 1
+                elif platform_name == 'Capes Periódicos': 
+                    platform_counts['Capes Periódicos'] += 1
+        
+        stats_data = {
+            "Total:": total_articles,
+            "PubMed:": platform_counts["PubMed"],
+            "Scielo:": platform_counts["Scielo"],
+            "Lilacs:": platform_counts["Lilacs"],
+            "Capes Periódicos:": platform_counts["Capes Periódicos"]
+        }
+        # ----------------------------------------------------
 
         row = 1
         for label, count in stats_data.items():
@@ -359,17 +333,42 @@ class ResultsWindow(QMainWindow):
         btn_add.clicked.connect(self.save_articles_to_database)
         footer_hbox.addWidget(btn_add)
         
-        btn_error = QPushButton(f'Registro de Erros ({len(self.current_search_errors)})')
+        # O número de erros deve vir de self.current_search_errors
+        num_errors = len(self.current_search_errors)
+        btn_error = QPushButton(f'Registro de Erros ({num_errors})')
         btn_error.setStyleSheet(style_red)
         btn_error.clicked.connect(self.open_current_error_log)
         footer_hbox.addWidget(btn_error, alignment=Qt.AlignRight)
 
         self.main_layout.addLayout(footer_hbox)
         
+        # --- CORREÇÃO FINAL: Adicionando a Logo e o Copyright ao Rodapé ---
+        final_footer_hbox = QHBoxLayout()
+        
         copyright_label = QLabel('© EBSERH')
         copyright_label.setFont(QFont("Arial", 8))
-        copyright_label.setAlignment(Qt.AlignRight)
-        self.main_layout.addWidget(copyright_label)
+        final_footer_hbox.addWidget(copyright_label, alignment=Qt.AlignLeft) 
+        
+        final_footer_hbox.addStretch(1) 
+
+        hc_logo_label = QLabel()
+        
+        # CORREÇÃO: Usamos self.parent_window.resource_path para garantir o caminho correto.
+        try:
+            hc_logo_pixmap = QPixmap(self.parent_window.resource_path("Interface/imagens/hc_logo.png")) 
+            if not hc_logo_pixmap.isNull():
+                scaled_hc_pixmap = hc_logo_pixmap.scaled(150, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                hc_logo_label.setPixmap(scaled_hc_pixmap)
+                final_footer_hbox.addWidget(hc_logo_label, alignment=Qt.AlignRight) 
+                print("[OK] Logo HC-UFPE carregada na ResultsWindow (via parent).")
+            else:
+                 print("[AVISO] Logo HC-UFPE não encontrada no caminho (ResultsWindow) - QPixmap nulo.")
+        except Exception as e:
+            # Em caso de falha (ex: parent_window não tem resource_path), registre o erro
+            print(f"[ERRO FATAL] Falha ao carregar logo HC-UFPE na ResultsWindow: {e}")
+
+        self.main_layout.addLayout(final_footer_hbox)
+        # -----------------------------------------------------------------
 
     # --- Método de Ação e Navegação ---
     
@@ -378,7 +377,7 @@ class ResultsWindow(QMainWindow):
         if self.current_log_window is None:
             # Importação feita internamente para evitar ciclo
             from Interface.log_windows import ErrorLogWindow 
-            self.current_log_window = ErrorLogWindow(parent=self.parent_window, errors=self.current_search_errors)
+            self.current_log_window = ErrorLogWindow(parent=self, errors=self.current_search_errors)
             self.current_log_window.setWindowTitle("Nexus - Registro de Erros da Consulta Atual")
             self.current_log_window.title_label.setText("Registro de Erros da Consulta Atual")
             self.current_log_window.destroyed.connect(self._reset_current_log_window)
@@ -403,6 +402,16 @@ class ResultsWindow(QMainWindow):
             print("[AVISO] DatabaseManager não disponível")
             return
 
+        # --- CORREÇÃO DE CONEXÃO: Garante que a conexão esteja ativa ---
+        try:
+            self.db_manager.connect() 
+            # O db_manager deve ter a lógica para reabrir a conexão se ela estiver fechada.
+        except Exception as e:
+            QMessageBox.critical(self, "Erro de Conexão", f"Não foi possível conectar ao banco de dados: {e}")
+            print(f"[ERRO] Falha ao conectar antes de salvar: {e}")
+            return
+        # ------------------------------------------------------------------
+
         if not self.articles:
             QMessageBox.information(self, "Aviso", "Nenhum artigo para salvar.")
             return
@@ -416,20 +425,19 @@ class ResultsWindow(QMainWindow):
                 doi = article.get("doi", "") or ""
 
                 # Verificação de duplicata:
-                # 1) se houver DOI, checar por (platform, doi)
-                # 2) caso contrário, se houver URL, checar por (platform, url)
                 existing = None
                 try:
+                    # CORREÇÃO CRÍTICA SECUNDÁRIA: O db_manager precisa da conexão ativa para rodar estes métodos
                     if doi:
                         existing = self.db_manager.read_article_by_platform_and_doi(platform, doi)
                     else:
                         url = article.get("link", "") or ""
-                        # normalizar url básica: remover trailing spaces e barras duplicadas
                         url = url.strip()
                         if url:
                             existing = self.db_manager.read_article_by_platform_and_url(platform, url)
                 except Exception as e:
-                    print(f"[AVISO] Erro ao checar duplicatas: {e}")
+                    # Este erro pode ocorrer se a função read_article não gerencia a conexão interna
+                    print(f"[AVISO] Erro ao checar duplicatas (pode ser problema de conexão interna): {e}")
 
                 if existing:
                     skipped_count += 1
@@ -446,7 +454,9 @@ class ResultsWindow(QMainWindow):
                     url=article.get("link", "N/A"),
                     status=article.get("status", "NOVO")
                 )
-                article_id = self.db_manager.create_article(art_obj)
+                # CORREÇÃO CRÍTICA SECUNDÁRIA: O db_manager precisa da conexão ativa para create_article
+                article_id = self.db_manager.create_article(art_obj) 
+                
                 if article_id:
                     saved_count += 1
                     print(f"[OK] Artigo '{article.get('titulo')[:50]}...' salvo com ID {article_id}")
@@ -458,6 +468,8 @@ class ResultsWindow(QMainWindow):
             QMessageBox.critical(self, "Erro", f"Erro ao salvar artigos: {str(e)}")
             print(f"[AVISO] Erro ao salvar artigos no BD: {e}")
 
+    # Note: No seu db_manager.py, é vital que todos os métodos CRUD chamem self.connect() 
+    # ou recebam a conexão ativa, caso contrário, o erro 'NoneType' continuará ocorrendo.
     def closeEvent(self, event):
         """Fecha a conexão com o BD quando a janela é fechada."""
         if self.db_manager:

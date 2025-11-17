@@ -412,7 +412,8 @@ class ErrorLogWindow(QMainWindow):
         self.populate_error_list(filtered_data)
 
     def return_to_parent(self):
-        """Fecha esta janela e exibe a janela SearchWindow (Parent)."""
-        if self.parent_search_window:
-            self.parent_search_window.show()
+        """Fecha esta janela e exibe o parent real."""
+        window_to_show = self.parent()
+        if window_to_show:
+            window_to_show.show()
         self.close()

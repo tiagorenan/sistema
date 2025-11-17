@@ -3,8 +3,8 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QFrame, QGridLayout, 
     QScrollArea, QSpacerItem, QSizePolicy
 )
-from PySide6.QtGui import QFont, QCursor
-from PySide6.QtCore import Qt, Signal, QRect
+from PySide6.QtGui import QFont, QCursor, QPixmap
+from PySide6.QtCore import Qt, Signal, QRect, QDate
 
 # --- Definições de Cores ---
 AZUL_NEXUS = "#3b5998"
@@ -22,7 +22,8 @@ class ArticleListItem(QFrame):
     """
     item_clicked = Signal(int)
 
-    def __init__(self, article_data, parent=None):
+    # CORREÇÃO: Removido search_date_str, pois não é necessário aqui
+    def __init__(self, article_data, parent=None): 
         super().__init__(parent)
         self.article_data = article_data
         self.is_expanded = False
@@ -86,7 +87,10 @@ class ArticleListItem(QFrame):
             layout.addWidget(value, row, 1)
 
         add_detail_row(detail_layout, 0, "ID DOI", self.article_data.get("doi", "N/A"))
+        
+        # CORREÇÃO DA PUBLICAÇÃO: Assume que a chave 'publicacao' está formatada corretamente no DBManager.
         add_detail_row(detail_layout, 1, "Publicação", self.article_data.get("publicacao", "N/A"))
+        
         add_detail_row(detail_layout, 2, "Link", f'<a href="{self.article_data.get("link", "#")}">{self.article_data.get("link", "N/A")}</a>')
         
         resumo_label = QLabel('<b>Resumo:</b>')
@@ -95,10 +99,11 @@ class ArticleListItem(QFrame):
         resumo_text.setWordWrap(True)
         detail_layout.addWidget(resumo_text, 4, 0, 1, 2)
         
-        data_pesquisa_label = QLabel('<i>Data da Pesquisa: (Histórico)</i>')
-        data_pesquisa_label.setFont(QFont("Arial", 8))
-        data_pesquisa_label.setAlignment(Qt.AlignRight)
-        detail_layout.addWidget(data_pesquisa_label, 5, 0, 1, 2, Qt.AlignRight)
+        # --- CAMPO REMOVIDO: Data da Pesquisa (Não é necessário aqui) ---
+        # data_pesquisa_label = QLabel(f'<i>Data da Pesquisa: {self.search_date_str}</i>')
+        # data_pesquisa_label.setFont(QFont("Arial", 8))
+        # data_pesquisa_label.setAlignment(Qt.AlignRight)
+        # detail_layout.addWidget(data_pesquisa_label, 5, 0, 1, 2, Qt.AlignRight)
 
         self.main_layout.addWidget(self.detail_widget)
 
@@ -138,21 +143,25 @@ class HistoricoArtigosWindow(QMainWindow):
     Janela dedicada a visualizar os artigos de UMA consulta específica
     do histórico, mantendo o layout de lista expansível.
     """
-    def __init__(self, parent=None, articles=None, query_term="Consulta Histórica"):
+    # CORREÇÃO: Removido search_date_str do __init__ da janela principal
+    def __init__(self, parent=None, articles=None, query_term="Consulta Histórica"): 
         super().__init__(parent)
-        self.setWindowTitle(f'Nexus - Artigos da Consulta: {query_term}')
+        
+        self.query_term = query_term
+        self.query_term_short = query_term[:80] + '...' if len(query_term) > 80 else query_term
+        
+        self.setWindowTitle(f'Nexus - Artigos da Consulta: {self.query_term_short}')
         self.setGeometry(150, 150, 1000, 750) 
         
-        # O parent_window é a HistoryWindow
         self.parent_window = parent 
         self.articles = articles if articles is not None else []
-        self.query_term = query_term
+        # Removido self.search_date_str
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
         
-        self.article_list_items = [] # Para gerenciar a expansão
+        self.article_list_items = [] 
         
         self._setup_header()
         self._setup_content()
@@ -167,15 +176,28 @@ class HistoricoArtigosWindow(QMainWindow):
         back_button.clicked.connect(self.return_to_parent) 
         header_hbox.addWidget(back_button, alignment=Qt.AlignLeft)
         
-        # Título Dinâmico
-        title_label = QLabel(f'Artigos Validados da Consulta: {self.query_term}')
+        # Título Dinâmico (usando a versão curta)
+        title_label = QLabel(f'Artigos Validados da Consulta: {self.query_term_short}')
         font = QFont("Arial", 18)
         font.setBold(True)
         title_label.setFont(font)
         title_label.setAlignment(Qt.AlignCenter)
         header_hbox.addWidget(title_label, 1) 
         
-        header_hbox.addItem(QSpacerItem(30, 30, QSizePolicy.Fixed, QSizePolicy.Fixed)) 
+        # --- Logo HC-UFPE no Header ---
+        hc_logo_label = QLabel()
+        try:
+            # Acessando o resource_path pela SearchWindow (pai do HistoryWindow)
+            search_window_parent = self.parent_window.parent_search_window 
+            hc_logo_pixmap = QPixmap(search_window_parent.resource_path("Interface/imagens/hc_logo.png")) 
+            if not hc_logo_pixmap.isNull():
+                scaled_hc_pixmap = hc_logo_pixmap.scaled(60, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                hc_logo_label.setPixmap(scaled_hc_pixmap)
+                header_hbox.addWidget(hc_logo_label, alignment=Qt.AlignRight) 
+        except Exception:
+            pass 
+
+        header_hbox.addItem(QSpacerItem(10, 30, QSizePolicy.Fixed, QSizePolicy.Fixed)) 
 
         self.main_layout.addLayout(header_hbox)
         separator = QFrame()
@@ -230,7 +252,7 @@ class HistoricoArtigosWindow(QMainWindow):
             return
 
         for article in self.articles:
-            # Usa a classe ArticleListItem definida acima
+            # CORREÇÃO: Agora o __init__ do ArticleListItem não precisa de search_date_str
             item = ArticleListItem(article)
             
             # Gerenciamento de expansão (Colapsa outros itens)
@@ -241,14 +263,13 @@ class HistoricoArtigosWindow(QMainWindow):
             self.article_list_items.append(item)
             self.results_vbox.addWidget(item)
         
-        # Adiciona a paginação e o stretch final
-        pagination_label = QLabel("<div align='center'>1 2 3 ...</div>")
-        self.results_vbox.addWidget(pagination_label, alignment=Qt.AlignCenter)
         self.results_vbox.addStretch(1)
 
 
     def _setup_stats_panel(self, frame):
-        """Configura o painel de estatísticas, baseado nos artigos carregados."""
+        """
+        Configura o painel de estatísticas, baseado nos artigos carregados.
+        """
         stats_layout = QGridLayout(frame)
         
         title_label = QLabel('Número de Artigos por Plataf')
@@ -257,14 +278,40 @@ class HistoricoArtigosWindow(QMainWindow):
         title_label.setFont(font)
         stats_layout.addWidget(title_label, 0, 0, 1, 2) 
 
-        # Estatística de Total (como na sua imagem)
-        total = len(self.articles)
-        stats_layout.addWidget(QLabel("Total:"), 1, 0)
-        total_input = QLineEdit(str(total))
-        total_input.setReadOnly(True)
-        stats_layout.addWidget(total_input, 1, 1)
+        # --- Cálculo dinâmico ---
+        platform_counts = {
+            "Total:": len(self.articles),
+            "PubMed:": 0,
+            "Scielo:": 0,
+            "Lilacs:": 0,
+            "Capes Periódicos:": 0
+        }
+        
+        for article in self.articles:
+            publicacao = article.get("publicacao", "")
+            platform_name = "Desconhecido"
+            if "(" in publicacao and ")" in publicacao:
+                platform_name = publicacao.split("(")[-1].rstrip(")")
+            
+            if platform_name in platform_counts:
+                platform_counts[platform_name] += 1
+            elif 'Capes' in platform_name:
+                 platform_counts['Capes Periódicos'] += 1
+        # ------------------------
+        
+        row = 1
+        platform_labels = ["Total:", "PubMed:", "Scielo:", "Lilacs:", "Capes Periódicos:"]
+        
+        for label_text in platform_labels:
+            count = platform_counts.get(label_text, platform_counts.get(label_text.rstrip(':'), 0))
+            stats_layout.addWidget(QLabel(label_text), row, 0)
+            input_field = QLineEdit(str(count))
+            input_field.setReadOnly(True)
+            input_field.setStyleSheet(f"background-color: {CINZA_FUNDO}; border: 1px solid gray; padding: 5px;")
+            stats_layout.addWidget(input_field, row, 1)
+            row += 1
 
-        stats_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 2, 0) 
+        stats_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), row, 0) 
 
     def _setup_footer(self):
         footer_hbox = QHBoxLayout()
@@ -277,10 +324,14 @@ class HistoricoArtigosWindow(QMainWindow):
         
         self.main_layout.addLayout(footer_hbox)
         
+        # --- Rodapé Final ---
+        final_footer_hbox = QHBoxLayout()
         copyright_label = QLabel('© EBSERH')
         copyright_label.setFont(QFont("Arial", 8))
-        copyright_label.setAlignment(Qt.AlignRight)
-        self.main_layout.addWidget(copyright_label)
+        final_footer_hbox.addWidget(copyright_label, alignment=Qt.AlignLeft)
+        final_footer_hbox.addStretch(1)
+        
+        self.main_layout.addLayout(final_footer_hbox)
 
     def return_to_parent(self):
         """Fecha esta janela e exibe a janela HistoryWindow (Parent)."""
